@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="es-419">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mis Finanzas — Jose</title>
+    <!-- React & ReactDOM CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel CDN for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const getNowIso = () => {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            return now.toISOString().slice(0, 16);
+        };
+
+        const INITIAL_STATE = {
+            currentUser: { username: "jose", fullName: "Jose" },
+            accounts: [
+                { id: "a1", name: "Daviplata", type: "digital_wallet", balance: 0, color: "bg-red-500", active: true },
+                { id: "a2", name: "Nequi", type: "digital_wallet", balance: 0, color: "bg-fuchsia-500", active: true },
+                { id: "a3", name: "Bancolombia", type: "bank", balance: 0, color: "bg-amber-500", active: true },
+                { id: "a4", name: "Binance", type: "investment", balance: 0, color: "bg-yellow-500", active: true },
+                { id: "a5", name: "Efectivo", type: "cash", balance: 0, color: "bg-emerald-500", active: true }
+            ],
+            pockets: [],
+            debts: [],
+            receivables: [],
+            transactions: [],
+            allocations: []
+        };
+
+        function App() {
+            const [data, setData] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('mis_finanzas_jose_complete_v5');
+                    return saved ? JSON.parse(saved) : INITIAL_STATE;
+                } catch(e) {
+                    return INITIAL_STATE;
+                }
+            });
+
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [showModal, setShowModal] = useState(null);
+
+            // Forms
+            const [formTx, setFormTx] = useState({ id: null, concept: '', amount: '', accountId: 'a1', type: 'income', category: 'General', dateTime: getNowIso() });
+            const [formPocket, setFormPocket] = useState({ id: null, name: '', target: '', current: '', accountId: 'a1' });
+            const [formAlloc, setFormAlloc] = useState({ id: null, name: '', amount: '', description: '' });
+            
+            const [formDebt, setFormDebt] = useState({ id: null, entity: '', concept: '', original: '', dueDate: '', dateTime: getNowIso() });
+            const [formDebtPayment, setFormDebtPayment] = useState({ debtId: '', accountId: 'a1', amount: '', dateTime: getNowIso() });
+
+            const [formReceivable, setFormReceivable] = useState({ id: null, debtor: '', concept: '', original: '', agreedDate: '', dateTime: getNowIso() });
+            const [formRecPayment, setFormRecPayment] = useState({ recId: '', accountId: 'a1', amount: '', dateTime: getNowIso() });
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem('mis_finanzas_jose_complete_v5', JSON.stringify(data));
+                } catch(e) {}
+            }, [data]);
+
+            // Formateadores
+            const formatCurrency = (val) => '$' + (val || 0).toLocaleString('es-CO');
+
+            const formatDateTime = (dtStr) => {
+                if (!dtStr) return '';
+                const d = new Date(dtStr);
+                return d.toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
+            };
+
+            // Totales
+            const totals = useMemo(() => {
+                const disponible = data.accounts.filter(a => a.type !== 'investment').reduce((acc, a) => acc + (a.active ? a.balance : 0), 0);
+                const inversiones = data.accounts.filter(a => a.type === 'investment').reduce((acc, a) => acc + (a.active ? a.balance : 0), 0);
+                
+                const meDeben = data.receivables.reduce((acc, r) => {
+                    const totalAbonado = (r.payments || []).reduce((pAcc, p) => pAcc + p.amount, 0);
+                    return acc + Math.max(0, r.original - totalAbonado);
+                }, 0);
+
+                const debo = data.debts.reduce((acc, d) => {
+                    const totalAbonado = (d.payments || []).reduce((pAcc, p) => pAcc + p.amount, 0);
+                    return acc + Math.max(0, d.original - totalAbonado);
+                }, 0);
+
+                const patrimonioNeto = disponible + inversiones + meDeben - debo;
+                const ingresosMes = data.transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+                const egresosMes = data.transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+
+                return { disponible, inversiones, meDeben, debo, patrimonioNeto, ingresosMes, egresosMes };
+            }, [data]);
+
+            // --- MANEJADORES MOVIMIENTOS ---
+            const handleSaveTransaction = (e) => {
+                e.preventDefault();
+                const amt = parseFloat(formTx.amount);
+                if (isNaN(amt) || amt <= 0) return alert("Monto inválido");
+
+                if (formTx.id) {
+                    const oldTx = data.transactions.find(t => t.id === formTx.id);
+                    let accountsCopy = data.accounts.map(a => {
+                        let bal = a.balance;
+                        if (oldTx && a.id === oldTx.accountId) {
+                            bal = oldTx.type === 'income' ? bal - oldTx.amount : bal + oldTx.amount;
+                        }
+                        return { ...a, balance: bal };
+                    });
+
+                    accountsCopy = accountsCopy.map(a => {
+                        if (a.id === formTx.accountId) {
+                            return { ...a, balance: formTx.type === 'income' ? a.balance + amt : a.balance - amt };
+                        }
+                        return a;
+                    });
+
+                    const updatedTxList = data.transactions.map(t => t.id === formTx.id ? {
+                        ...t,
+                        dateTime: formTx.dateTime,
+                        concept: formTx.concept,
+                        amount: amt,
+                        type: formTx.type,
+                        accountId: formTx.accountId,
+                        category: formTx.category
+                    } : t);
+
+                    setData(prev => ({ ...prev, accounts: accountsCopy, transactions: updatedTxList }));
+                } else {
+                    const updatedAccounts = data.accounts.map(a => {
+                        if (a.id === formTx.accountId) {
+                            return { ...a, balance: formTx.type === 'income' ? a.balance + amt : a.balance - amt };
+                        }
+                        return a;
+                    });
+
+                    const newTx = {
+                        id: 't' + Date.now(),
+                        dateTime: formTx.dateTime || getNowIso(),
+                        concept: formTx.concept,
+                        amount: amt,
+                        type: formTx.type,
+                        accountId: formTx.accountId,
+                        category: formTx.category
+                    };
+
+                    setData(prev => ({ ...prev, accounts: updatedAccounts, transactions: [newTx, ...prev.transactions] }));
+                }
+
+                setShowModal(null);
+            };
+
+            const handleDeleteTransaction = (id) => {
+                if (!confirm("¿Seguro que deseas eliminar este movimiento?")) return;
+                const tx = data.transactions.find(t => t.id === id);
+                if (!tx) return;
+
+                const updatedAccounts = data.accounts.map(a => {
+                    if (a.id === tx.accountId) {
+                        return { ...a, balance: tx.type === 'income' ? a.balance - tx.amount : a.balance + tx.amount };
+                    }
+                    return a;
+                });
+
+                setData(prev => ({
+                    ...prev,
+                    accounts: updatedAccounts,
+                    transactions: prev.transactions.filter(t => t.id !== id)
+                }));
+            };
+
+            // --- MANEJADORES BOLSILLOS ---
+            const handleSavePocket = (e) => {
+                e.preventDefault();
+                const target = parseFloat(formPocket.target) || 0;
+                const current = parseFloat(formPocket.current) || 0;
+
+                if (formPocket.id) {
+                    const updated = data.pockets.map(p => p.id === formPocket.id ? { ...p, name: formPocket.name, target, current, accountId: formPocket.accountId } : p);
+                    setData(prev => ({ ...prev, pockets: updated }));
+                } else {
+                    const newP = { id: 'p' + Date.now(), name: formPocket.name, target, current, accountId: formPocket.accountId };
+                    setData(prev => ({ ...prev, pockets: [...prev.pockets, newP] }));
+                }
+                setShowModal(null);
+            };
+
+            const handleDeletePocket = (id) => {
+                if (!confirm("¿Deseas eliminar este bolsillo?")) return;
+                setData(prev => ({ ...prev, pockets: prev.pockets.filter(p => p.id !== id) }));
+            };
+
+            // --- MANEJADORES DESTINACIÓN DE FONDOS ---
+            const handleSaveAlloc = (e) => {
+                e.preventDefault();
+                const amt = parseFloat(formAlloc.amount) || 0;
+                if (formAlloc.id) {
+                    const updated = data.allocations.map(a => a.id === formAlloc.id ? { ...a, name: formAlloc.name, amount: amt, description: formAlloc.description } : a);
+                    setData(prev => ({ ...prev, allocations: updated }));
+                } else {
+                    const newA = { id: 'al' + Date.now(), name: formAlloc.name, amount: amt, description: formAlloc.description };
+                    setData(prev => ({ ...prev, allocations: [...prev.allocations, newA] }));
+                }
+                setShowModal(null);
+            };
+
+            const handleDeleteAlloc = (id) => {
+                if (!confirm("¿Deseas eliminar esta destinación de fondos?")) return;
+                setData(prev => ({ ...prev, allocations: prev.allocations.filter(a => a.id !== id) }));
+            };
+
+            // --- MANEJADORES DEUDAS (CREAR, EDITAR Y ELIMINAR) ---
+            const handleSaveDebt = (e) => {
+                e.preventDefault();
+                const orig = parseFloat(formDebt.original) || 0;
+                if (formDebt.id) {
+                    const updated = data.debts.map(d => d.id === formDebt.id ? { ...d, entity: formDebt.entity, concept: formDebt.concept, original: orig, dueDate: formDebt.dueDate, dateTime: formDebt.dateTime } : d);
+                    setData(prev => ({ ...prev, debts: updated }));
+                } else {
+                    const newD = {
+                        id: 'd' + Date.now(),
+                        entity: formDebt.entity,
+                        concept: formDebt.concept,
+                        original: orig,
+                        dueDate: formDebt.dueDate,
+                        dateTime: formDebt.dateTime || getNowIso(),
+                        payments: []
+                    };
+                    setData(prev => ({ ...prev, debts: [...prev.debts, newD] }));
+                }
+                setShowModal(null);
+            };
+
+            const handleDeleteDebt = (id) => {
+                if (!confirm("¿Seguro que deseas eliminar este registro de deuda?")) return;
+                setData(prev => ({ ...prev, debts: prev.debts.filter(d => d.id !== id) }));
+            };
+
+            const handlePayDebt = (e) => {
+                e.preventDefault();
+                const amt = parseFloat(formDebtPayment.amount);
+                if (isNaN(amt) || amt <= 0) return alert("Monto de abono inválido");
+
+                const updatedAccounts = data.accounts.map(a => a.id === formDebtPayment.accountId ? { ...a, balance: a.balance - amt } : a);
+                const updatedDebts = data.debts.map(d => {
+                    if (d.id === formDebtPayment.debtId) {
+                        const newPayment = { id: 'pay' + Date.now(), amount: amt, dateTime: formDebtPayment.dateTime || getNowIso(), accountId: formDebtPayment.accountId };
+                        return { ...d, payments: [...(d.payments || []), newPayment] };
+                    }
+                    return d;
+                });
+
+                const newTx = {
+                    id: 't' + Date.now(),
+                    dateTime: formDebtPayment.dateTime || getNowIso(),
+                    concept: `Abono Deuda: ${data.debts.find(d => d.id === formDebtPayment.debtId)?.entity || ''}`,
+                    amount: amt,
+                    type: 'expense',
+                    accountId: formDebtPayment.accountId,
+                    category: 'Pago de Deuda'
+                };
+
+                setData(prev => ({ ...prev, accounts: updatedAccounts, debts: updatedDebts, transactions: [newTx, ...prev.transactions] }));
+                setShowModal(null);
+            };
+
+            // --- MANEJADORES ME DEBEN (CREAR, EDITAR Y ELIMINAR) ---
+            const handleSaveReceivable = (e) => {
+                e.preventDefault();
+                const orig = parseFloat(formReceivable.original) || 0;
+                if (formReceivable.id) {
+                    const updated = data.receivables.map(r => r.id === formReceivable.id ? { ...r, debtor: formReceivable.debtor, concept: formReceivable.concept, original: orig, agreedDate: formReceivable.agreedDate, dateTime: formReceivable.dateTime } : r);
+                    setData(prev => ({ ...prev, receivables: updated }));
+                } else {
+                    const newR = {
+                        id: 'r' + Date.now(),
+                        debtor: formReceivable.debtor,
+                        concept: formReceivable.concept,
+                        original: orig,
+                        agreedDate: formReceivable.agreedDate,
+                        dateTime: formReceivable.dateTime || getNowIso(),
+                        payments: []
+                    };
+                    setData(prev => ({ ...prev, receivables: [...prev.receivables, newR] }));
+                }
+                setShowModal(null);
+            };
+
+            const handleDeleteReceivable = (id) => {
+                if (!confirm("¿Seguro que deseas eliminar este registro de 'Me Deben'?")) return;
+                setData(prev => ({ ...prev, receivables: prev.receivables.filter(r => r.id !== id) }));
+            };
+
+            const handleReceivePayment = (e) => {
+                e.preventDefault();
+                const amt = parseFloat(formRecPayment.amount);
+                if (isNaN(amt) || amt <= 0) return alert("Monto de abono inválido");
+
+                const updatedAccounts = data.accounts.map(a => a.id === formRecPayment.accountId ? { ...a, balance: a.balance + amt } : a);
+                const updatedReceivables = data.receivables.map(r => {
+                    if (r.id === formRecPayment.recId) {
+                        const newPayment = { id: 'rpay' + Date.now(), amount: amt, dateTime: formRecPayment.dateTime || getNowIso(), accountId: formRecPayment.accountId };
+                        return { ...r, payments: [...(r.payments || []), newPayment] };
+                    }
+                    return r;
+                });
+
+                const newTx = {
+                    id: 't' + Date.now(),
+                    dateTime: formRecPayment.dateTime || getNowIso(),
+                    concept: `Abono Recibido: ${data.receivables.find(r => r.id === formRecPayment.recId)?.debtor || ''}`,
+                    amount: amt,
+                    type: 'income',
+                    accountId: formRecPayment.accountId,
+                    category: 'Cobro Préstamo'
+                };
+
+                setData(prev => ({ ...prev, accounts: updatedAccounts, receivables: updatedReceivables, transactions: [newTx, ...prev.transactions] }));
+                setShowModal(null);
+            };
+
+            return (
+                <div className="flex flex-col md:flex-row min-h-screen bg-slate-950 text-slate-100">
+                    {/* BARRA LATERAL */}
+                    <aside className="w-full md:w-64 bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 p-4 flex flex-col justify-between">
+                        <div>
+                            <div className="flex items-center gap-3 px-3 py-4 border-b border-slate-800 mb-6">
+                                <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-950 text-xl">
+                                    J
+                                </div>
+                                <div>
+                                    <h1 className="font-bold text-white text-lg">Mis Finanzas</h1>
+                                    <p className="text-xs text-emerald-400 font-semibold">@jose</p>
+                                </div>
+                            </div>
+
+                            <nav className="space-y-1">
+                                {[
+                                    { id: 'dashboard', label: '📊 Dashboard' },
+                                    { id: 'accounts', label: '💳 Mis Cuentas' },
+                                    { id: 'pockets', label: '🐷 Bolsillos' },
+                                    { id: 'destinacion', label: '🎯 Destinación de Fondos' },
+                                    { id: 'debts', label: '📤 Mis Deudas' },
+                                    { id: 'receivables', label: '📥 Me Deben' },
+                                    { id: 'transactions', label: '📜 Movimientos' }
+                                ].map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+                                            activeTab === tab.id ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
+                    </aside>
+
+                    {/* CONTENIDO PRINCIPAL */}
+                    <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl mx-auto">
+                        <div className="mb-8 flex flex-wrap gap-2 items-center justify-between border-b border-slate-800 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-black text-white uppercase tracking-wider">{activeTab}</h2>
+                                <p className="text-xs text-slate-400">Panel Financiero Personal de Jose</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button onClick={() => { setFormTx({ id: null, concept: '', amount: '', accountId: 'a1', type: 'income', category: 'General', dateTime: getNowIso() }); setShowModal('tx'); }} className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition">
+                                    + Movimiento
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* DASHBOARD */}
+                        {activeTab === 'dashboard' && (
+                            <div className="space-y-6">
+                                <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-6">
+                                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Patrimonio Neto Total</span>
+                                    <div className="text-4xl md:text-5xl font-black text-white mt-1">
+                                        {formatCurrency(totals.patrimonioNeto)} <span className="text-sm font-normal text-slate-400">COP</span>
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-2">
+                                        Calculado: Disponible ({formatCurrency(totals.disponible)}) + Inversiones ({formatCurrency(totals.inversiones)}) + Me Deben ({formatCurrency(totals.meDeben)}) - Debo ({formatCurrency(totals.debo)})
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                                        <div className="text-xs text-slate-400 font-semibold">💰 Disponible</div>
+                                        <div className="text-xl font-bold text-emerald-400 mt-1">{formatCurrency(totals.disponible)}</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                                        <div className="text-xs text-slate-400 font-semibold">📈 Inversiones</div>
+                                        <div className="text-xl font-bold text-yellow-400 mt-1">{formatCurrency(totals.inversiones)}</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                                        <div className="text-xs text-slate-400 font-semibold">🤝 Me Deben</div>
+                                        <div className="text-xl font-bold text-cyan-400 mt-1">{formatCurrency(totals.meDeben)}</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                                        <div className="text-xs text-slate-400 font-semibold">💳 Total que Debo</div>
+                                        <div className="text-xl font-bold text-rose-400 mt-1">{formatCurrency(totals.debo)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* MIS CUENTAS */}
+                        {activeTab === 'accounts' && (
+                            <div className="grid md:grid-cols-3 gap-4">
+                                {data.accounts.map(acc => (
+                                    <div key={acc.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-xs font-bold text-slate-400 uppercase">{acc.type}</span>
+                                            <span className={`w-3 h-3 rounded-full ${acc.color}`}></span>
+                                        </div>
+                                        <h3 className="font-bold text-white text-lg">{acc.name}</h3>
+                                        <div className="mt-4 text-2xl font-black text-emerald-400">{formatCurrency(acc.balance)}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* BOLSILLOS */}
+                        {activeTab === 'pockets' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-white">Mis Bolsillos de Ahorro</h3>
+                                    <button onClick={() => { setFormPocket({ id: null, name: '', target: '', current: '', accountId: 'a1' }); setShowModal('pocket'); }} className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold px-3 py-2 rounded-xl">
+                                        + Crear Bolsillo
+                                    </button>
+                                </div>
+                                <div className="grid md:grid-cols-3 gap-4">
+                                    {data.pockets.length === 0 ? (
+                                        <div className="col-span-3 text-slate-500 italic text-center py-8">No has creado bolsillos aún.</div>
+                                    ) : (
+                                        data.pockets.map(p => {
+                                            const pct = p.target > 0 ? Math.min(100, Math.round((p.current / p.target) * 100)) : 0;
+                                            const acc = data.accounts.find(a => a.id === p.accountId);
+                                            return (
+                                                <div key={p.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl relative">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <h4 className="font-bold text-white text-base">🐷 {p.name}</h4>
+                                                        <div className="space-x-2">
+                                                            <button onClick={() => { setFormPocket({ id: p.id, name: p.name, target: p.target, current: p.current, accountId: p.accountId }); setShowModal('pocket'); }} className="text-xs text-amber-400 hover:underline">
+                                                                Editar
+                                                            </button>
+                                                            <button onClick={() => handleDeletePocket(p.id)} className="text-xs text-rose-400 hover:underline">
+                                                                Eliminar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs text-slate-400 mb-2">Cuenta: <span className="text-white font-semibold">{acc ? acc.name : '-'}</span></div>
+                                                    <div className="text-2xl font-black text-fuchsia-400 mb-1">{formatCurrency(p.current)}</div>
+                                                    <div className="text-xs text-slate-400 mb-3">Meta: {formatCurrency(p.target)} ({pct}%)</div>
+                                                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                                                        <div className="bg-fuchsia-500 h-full" style={{ width: `${pct}%` }}></div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* DESTINACIÓN DE FONDOS */}
+                        {activeTab === 'destinacion' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-white">Destinación de Fondos y Presupuestos</h3>
+                                    <button onClick={() => { setFormAlloc({ id: null, name: '', amount: '', description: '' }); setShowModal('alloc'); }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-xl">
+                                        + Crear Destinación
+                                    </button>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-slate-800 text-slate-400 text-xs uppercase">
+                                            <tr>
+                                                <th className="p-4">Nombre / Destino</th>
+                                                <th className="p-4">Descripción</th>
+                                                <th className="p-4 text-right">Monto</th>
+                                                <th className="p-4 text-center">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800">
+                                            {data.allocations.length === 0 ? (
+                                                <tr><td colSpan="4" className="p-6 text-center text-slate-500 italic">No hay destinaciones configuradas.</td></tr>
+                                            ) : (
+                                                data.allocations.map(a => (
+                                                    <tr key={a.id} className="hover:bg-slate-800/50">
+                                                        <td className="p-4 font-bold text-white">{a.name}</td>
+                                                        <td className="p-4 text-slate-400 text-xs">{a.description || '-'}</td>
+                                                        <td className="p-4 text-right font-bold text-emerald-400">{formatCurrency(a.amount)}</td>
+                                                        <td className="p-4 text-center space-x-2">
+                                                            <button onClick={() => { setFormAlloc({ id: a.id, name: a.name, amount: a.amount, description: a.description || '' }); setShowModal('alloc'); }} className="text-amber-400 hover:underline text-xs font-bold">
+                                                                Editar
+                                                            </button>
+                                                            <button onClick={() => handleDeleteAlloc(a.id)} className="text-rose-400 hover:underline text-xs font-bold">
+                                                                Eliminar
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* MIS DEUDAS */}
+                        {activeTab === 'debts' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-white">Mis Deudas</h3>
+                                    <button onClick={() => { setFormDebt({ id: null, entity: '', concept: '', original: '', dueDate: '', dateTime: getNowIso() }); setShowModal('debt'); }} className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3 py-2 rounded-xl">
+                                        + Registrar Deuda
+                                    </button>
+                                </div>
+
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    {data.debts.length === 0 ? (
+                                        <div className="col-span-2 text-slate-500 italic text-center py-8">No tienes deudas registradas.</div>
+                                    ) : (
+                                        data.debts.map(d => {
+                                            const totalAbonado = (d.payments || []).reduce((acc, p) => acc + p.amount, 0);
+                                            const pendiente = Math.max(0, d.original - totalAbonado);
+
+                                            return (
+                                                <div key={d.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-3">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h4 className="font-bold text-white text-base">{d.entity}</h4>
+                                                            <p className="text-xs text-slate-400">{d.concept}</p>
+                                                        </div>
+                                                        <div className="space-x-2">
+                                                            <button onClick={() => { setFormDebt({ id: d.id, entity: d.entity, concept: d.concept, original: d.original, dueDate: d.dueDate, dateTime: d.dateTime }); setShowModal('debt'); }} className="text-xs text-amber-400 hover:underline font-bold">
+                                                                Editar
+                                                            </button>
+                                                            <button onClick={() => handleDeleteDebt(d.id)} className="text-xs text-rose-400 hover:underline font-bold">
+                                                                Eliminar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-xs text-slate-500">
+                                                        Registrado el: <span className="text-slate-300 font-mono">{formatDateTime(d.dateTime)}</span>
+                                                        {d.dueDate && <div>Vence el: <span className="text-rose-400">{d.dueDate}</span></div>}
+                                                    </div>
+
+                                                    <div className="flex justify-between items-end border-t border-slate-800 pt-3">
+                                                        <div>
+                                                            <div className="text-xs text-slate-400">Saldo Pendiente</div>
+                                                            <div className="text-2xl font-black text-rose-400">{formatCurrency(pendiente)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-xs text-slate-400">Total Abonado</div>
+                                                            <div className="text-sm font-bold text-emerald-400">{formatCurrency(totalAbonado)} / {formatCurrency(d.original)}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <button onClick={() => { setFormDebtPayment({ debtId: d.id, accountId: 'a1', amount: '', dateTime: getNowIso() }); setShowModal('debtPayment'); }} className="w-full bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 text-xs font-bold py-2 rounded-xl border border-rose-500/30">
+                                                        + Registrar Abono
+                                                    </button>
+
+                                                    {/* HISTORIAL DE ABONOS */}
+                                                    {d.payments && d.payments.length > 0 && (
+                                                        <div className="text-xs bg-slate-950 p-3 rounded-xl space-y-1">
+                                                            <div className="font-bold text-slate-400 mb-1">Historial de Abonos:</div>
+                                                            {d.payments.map(p => (
+                                                                <div key={p.id} className="flex justify-between text-slate-300 border-b border-slate-800 pb-1">
+                                                                    <span>{formatDateTime(p.dateTime)}</span>
+                                                                    <span className="font-bold text-emerald-400">{formatCurrency(p.amount)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ME DEBEN */}
+                        {activeTab === 'receivables' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-white">Dinero que Me Deben</h3>
+                                    <button onClick={() => { setFormReceivable({ id: null, debtor: '', concept: '', original: '', agreedDate: '', dateTime: getNowIso() }); setShowModal('receivable'); }} className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-3 py-2 rounded-xl">
+                                        + Registrar Préstamo
+                                    </button>
+                                </div>
+
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    {data.receivables.length === 0 ? (
+                                        <div className="col-span-2 text-slate-500 italic text-center py-8">Nadie te debe dinero actualmente.</div>
+                                    ) : (
+                                        data.receivables.map(r => {
+                                            const totalAbonado = (r.payments || []).reduce((acc, p) => acc + p.amount, 0);
+                                            const pendiente = Math.max(0, r.original - totalAbonado);
+
+                                            return (
+                                                <div key={r.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-3">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h4 className="font-bold text-white text-base">{r.debtor}</h4>
+                                                            <p className="text-xs text-slate-400">{r.concept}</p>
+                                                        </div>
+                                                        <div className="space-x-2">
+                                                            <button onClick={() => { setFormReceivable({ id: r.id, debtor: r.debtor, concept: r.concept, original: r.original, agreedDate: r.agreedDate, dateTime: r.dateTime }); setShowModal('receivable'); }} className="text-xs text-amber-400 hover:underline font-bold">
+                                                                Editar
+                                                            </button>
+                                                            <button onClick={() => handleDeleteReceivable(r.id)} className="text-xs text-rose-400 hover:underline font-bold">
+                                                                Eliminar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-xs text-slate-500">
+                                                        Registrado el: <span className="text-slate-300 font-mono">{formatDateTime(r.dateTime)}</span>
+                                                        {r.agreedDate && <div>Fecha acordada: <span className="text-cyan-400">{r.agreedDate}</span></div>}
+                                                    </div>
+
+                                                    <div className="flex justify-between items-end border-t border-slate-800 pt-3">
+                                                        <div>
+                                                            <div className="text-xs text-slate-400">Pendiente por Cobrar</div>
+                                                            <div className="text-2xl font-black text-cyan-400">{formatCurrency(pendiente)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-xs text-slate-400">Total Abonado</div>
+                                                            <div className="text-sm font-bold text-emerald-400">{formatCurrency(totalAbonado)} / {formatCurrency(r.original)}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <button onClick={() => { setFormRecPayment({ recId: r.id, accountId: 'a1', amount: '', dateTime: getNowIso() }); setShowModal('recPayment'); }} className="w-full bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 text-xs font-bold py-2 rounded-xl border border-cyan-500/30">
+                                                        + Registrar Abono Recibido
+                                                    </button>
+
+                                                    {/* HISTORIAL DE ABONOS RECIBIDOS */}
+                                                    {r.payments && r.payments.length > 0 && (
+                                                        <div className="text-xs bg-slate-950 p-3 rounded-xl space-y-1">
+                                                            <div className="font-bold text-slate-400 mb-1">Historial de Abonos Recibidos:</div>
+                                                            {r.payments.map(p => (
+                                                                <div key={p.id} className="flex justify-between text-slate-300 border-b border-slate-800 pb-1">
+                                                                    <span>{formatDateTime(p.dateTime)}</span>
+                                                                    <span className="font-bold text-emerald-400">{formatCurrency(p.amount)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* MOVIMIENTOS */}
+                        {activeTab === 'transactions' && (
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-800 text-slate-400 text-xs uppercase">
+                                        <tr>
+                                            <th className="p-4">Fecha y Hora</th>
+                                            <th className="p-4">Concepto</th>
+                                            <th className="p-4">Categoría</th>
+                                            <th className="p-4">Cuenta</th>
+                                            <th className="p-4">Tipo</th>
+                                            <th className="p-4 text-right">Monto</th>
+                                            <th className="p-4 text-center">Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800">
+                                        {data.transactions.length === 0 ? (
+                                            <tr><td colSpan="7" className="p-6 text-center text-slate-500 italic">No hay movimientos registrados.</td></tr>
+                                        ) : (
+                                            data.transactions.map(t => {
+                                                const acc = data.accounts.find(a => a.id === t.accountId);
+                                                return (
+                                                    <tr key={t.id} className="hover:bg-slate-800/50">
+                                                        <td className="p-4 text-xs font-mono text-slate-400">{formatDateTime(t.dateTime)}</td>
+                                                        <td className="p-4 font-semibold text-white">{t.concept}</td>
+                                                        <td className="p-4 text-xs"><span className="bg-slate-800 px-2 py-1 rounded-md text-slate-300">{t.category}</span></td>
+                                                        <td className="p-4 text-xs text-slate-300">{acc ? acc.name : '-'}</td>
+                                                        <td className="p-4 text-xs font-bold uppercase">
+                                                            <span className={t.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}>{t.type === 'income' ? 'Ingreso' : 'Egreso'}</span>
+                                                        </td>
+                                                        <td className={`p-4 text-right font-bold ${t.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                            {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}
+                                                        </td>
+                                                        <td className="p-4 text-center space-x-2">
+                                                            <button onClick={() => { setFormTx({ id: t.id, concept: t.concept, amount: t.amount, accountId: t.accountId, type: t.type, category: t.category, dateTime: t.dateTime }); setShowModal('tx'); }} className="text-amber-400 hover:underline text-xs font-bold">
+                                                                Editar
+                                                            </button>
+                                                            <button onClick={() => handleDeleteTransaction(t.id)} className="text-rose-400 hover:underline text-xs font-bold">
+                                                                Eliminar
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* MODAL MOVIMIENTO */}
+                    {showModal === 'tx' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleSaveTransaction} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">{formTx.id ? 'Editar Movimiento' : 'Nuevo Movimiento'}</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha y Hora Local</label>
+                                    <input type="datetime-local" required value={formTx.dateTime} onChange={e => setFormTx({ ...formTx, dateTime: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Tipo</label>
+                                    <select value={formTx.type} onChange={e => setFormTx({ ...formTx, type: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1">
+                                        <option value="income">📥 Ingreso</option>
+                                        <option value="expense">📤 Egreso</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Concepto</label>
+                                    <input type="text" required placeholder="Ej: Sueldo, Supermercado" value={formTx.concept} onChange={e => setFormTx({ ...formTx, concept: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Monto (COP)</label>
+                                    <input type="number" required placeholder="0" value={formTx.amount} onChange={e => setFormTx({ ...formTx, amount: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuenta</label>
+                                    <select value={formTx.accountId} onChange={e => setFormTx({ ...formTx, accountId: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1">
+                                        {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance)})</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-emerald-500 text-slate-950 py-3 rounded-xl font-bold">{formTx.id ? 'Actualizar' : 'Guardar'}</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL BOLSILLO */}
+                    {showModal === 'pocket' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleSavePocket} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">{formPocket.id ? 'Editar Bolsillo' : 'Nuevo Bolsillo de Ahorro'}</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Nombre del Bolsillo</label>
+                                    <input type="text" required placeholder="Ej: Arriendo, Vacaciones" value={formPocket.name} onChange={e => setFormPocket({ ...formPocket, name: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Meta (COP)</label>
+                                    <input type="number" required placeholder="0" value={formPocket.target} onChange={e => setFormPocket({ ...formPocket, target: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Saldo Actual (COP)</label>
+                                    <input type="number" required placeholder="0" value={formPocket.current} onChange={e => setFormPocket({ ...formPocket, current: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuenta Asociada</label>
+                                    <select value={formPocket.accountId} onChange={e => setFormPocket({ ...formPocket, accountId: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1">
+                                        {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-fuchsia-600 text-white py-3 rounded-xl font-bold">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL DESTINACIÓN FONDOS */}
+                    {showModal === 'alloc' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleSaveAlloc} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">{formAlloc.id ? 'Editar Destinación' : 'Nueva Destinación de Fondos'}</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Nombre / Concepto</label>
+                                    <input type="text" required placeholder="Ej: Fondo Emergencias, Mercado" value={formAlloc.name} onChange={e => setFormAlloc({ ...formAlloc, name: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Monto (COP)</label>
+                                    <input type="number" required placeholder="0" value={formAlloc.amount} onChange={e => setFormAlloc({ ...formAlloc, amount: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Descripción / Mes</label>
+                                    <input type="text" placeholder="Ej: Asignación para el mes de Octubre" value={formAlloc.description} onChange={e => setFormAlloc({ ...formAlloc, description: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-emerald-600 text-white py-3 rounded-xl font-bold">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL DEUDA */}
+                    {showModal === 'debt' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleSaveDebt} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">{formDebt.id ? 'Editar Deuda' : 'Registrar Nueva Deuda'}</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha y Hora de Registro</label>
+                                    <input type="datetime-local" required value={formDebt.dateTime} onChange={e => setFormDebt({ ...formDebt, dateTime: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">A quién le debo (Persona o Entidad)</label>
+                                    <input type="text" required placeholder="Ej: Banco, Carlos" value={formDebt.entity} onChange={e => setFormDebt({ ...formDebt, entity: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Concepto</label>
+                                    <input type="text" required placeholder="Ej: Préstamo personal" value={formDebt.concept} onChange={e => setFormDebt({ ...formDebt, concept: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuánto debo (Monto Original)</label>
+                                    <input type="number" required placeholder="0" value={formDebt.original} onChange={e => setFormDebt({ ...formDebt, original: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha de Vencimiento (Opcional)</label>
+                                    <input type="date" value={formDebt.dueDate} onChange={e => setFormDebt({ ...formDebt, dueDate: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-rose-600 text-white py-3 rounded-xl font-bold">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL ABONO DEUDA */}
+                    {showModal === 'debtPayment' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handlePayDebt} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">Registrar Abono a Deuda</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha y Hora del Abono</label>
+                                    <input type="datetime-local" required value={formDebtPayment.dateTime} onChange={e => setFormDebtPayment({ ...formDebtPayment, dateTime: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Monto del Abono (COP)</label>
+                                    <input type="number" required placeholder="0" value={formDebtPayment.amount} onChange={e => setFormDebtPayment({ ...formDebtPayment, amount: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuenta Usada para el Pago</label>
+                                    <select value={formDebtPayment.accountId} onChange={e => setFormDebtPayment({ ...formDebtPayment, accountId: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1">
+                                        {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance)})</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-rose-600 text-white py-3 rounded-xl font-bold">Registrar Abono</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL ME DEBEN */}
+                    {showModal === 'receivable' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleSaveReceivable} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">{formReceivable.id ? 'Editar Préstamo' : 'Registrar Dinero que Me Deben'}</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha y Hora de Registro</label>
+                                    <input type="datetime-local" required value={formReceivable.dateTime} onChange={e => setFormReceivable({ ...formReceivable, dateTime: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Quién me debe</label>
+                                    <input type="text" required placeholder="Ej: Juan" value={formReceivable.debtor} onChange={e => setFormReceivable({ ...formReceivable, debtor: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Concepto</label>
+                                    <input type="text" required placeholder="Ej: Préstamo personal" value={formReceivable.concept} onChange={e => setFormReceivable({ ...formReceivable, concept: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuánto me debe (Monto Original)</label>
+                                    <input type="number" required placeholder="0" value={formReceivable.original} onChange={e => setFormReceivable({ ...formReceivable, original: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha Acordada (Opcional)</label>
+                                    <input type="date" value={formReceivable.agreedDate} onChange={e => setFormReceivable({ ...formReceivable, agreedDate: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-cyan-600 text-white py-3 rounded-xl font-bold">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL ABONO RECIBIDO */}
+                    {showModal === 'recPayment' && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={handleReceivePayment} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+                                <h3 className="font-bold text-white text-lg">Registrar Abono Recibido</h3>
+                                <div>
+                                    <label className="text-xs text-slate-400">Fecha y Hora del Abono</label>
+                                    <input type="datetime-local" required value={formRecPayment.dateTime} onChange={e => setFormRecPayment({ ...formRecPayment, dateTime: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Monto Recibido (COP)</label>
+                                    <input type="number" required placeholder="0" value={formRecPayment.amount} onChange={e => setFormRecPayment({ ...formRecPayment, amount: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400">Cuenta donde Ingresa la Plata</label>
+                                    <select value={formRecPayment.accountId} onChange={e => setFormRecPayment({ ...formRecPayment, accountId: e.target.value })} className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 mt-1">
+                                        {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance)})</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setShowModal(null)} className="w-1/2 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-cyan-600 text-white py-3 rounded-xl font-bold">Registrar Recibo</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App/>);
+    </script>
+</body>
+</html>
