@@ -58,7 +58,7 @@
             { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
             { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, moneda: "COP", activa: true },
             { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, moneda: "COP", activa: true },
-            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, moneda: "USD", activa: true }
+            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 500, moneda: "USD", activa: true }
         ];
 
         const ESTADO_INICIAL = {
@@ -100,7 +100,7 @@
             const [estadoSincro, setEstadoSincro] = useState('espera');
             const [rubroActivo, setRubroActivo] = useState('inicio');
             const [modalVisible, setModalVisible] = useState(null);
-            const [confirmacion, setConfirmacion] = useState(null); // Modal de confirmación estilizado
+            const [confirmacion, setConfirmacion] = useState(null);
             const [notificacion, setNotificacion] = useState(null);
 
             const [busquedaMov, setBusquedaMov] = useState('');
@@ -271,7 +271,7 @@
 
             // Formularios de Trading e Inversión
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
-            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'diario', nombre: '', tasaTRM: '3950' });
+            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
 
             // Operaciones Trades
             const guardarTrade = (e) => {
@@ -363,7 +363,7 @@
                 const nuevoCierre = {
                     id: 'cierre_inv_' + Date.now(),
                     tipo: formCierreInv.tipo,
-                    nombre: formCierreInv.nombre.trim() || (formCierreInv.tipo === 'diario' ? 'Cierre Diario' : 'Cierre Mensual'),
+                    nombre: formCierreInv.nombre.trim() || (formCierreInv.tipo === 'semanal' ? 'Cierre Semanal' : 'Cierre Mensual'),
                     fechaHora: obtenerFechaHoraActual(),
                     totalUSD: totalUSD,
                     tasaTRM: tasaNum,
@@ -948,7 +948,7 @@
                                                 </div>
                                             </div>
                                             <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo }); setModalVisible('ajusteSaldo'); }} className="w-full text-center text-[11px] font-bold text-neutral-400 hover:text-white bg-black/60 hover:bg-black py-1.5 rounded-lg border border-neutral-800 transition">
-                                                ⚙️ Ajustar Saldo
+                                                ⚙️ Ajustar Saldo / Inyección
                                             </button>
                                         </div>
                                     ))}
@@ -961,7 +961,12 @@
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                     <div>
-                                        <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Capital Operativo en Dólares (USD)</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Capital Operativo Broker (USD)</span>
+                                            <button onClick={() => { const cBinance = listaCuentas.find(c => c.tipo === 'Inversión' || c.moneda === 'USD'); if(cBinance) { setFormAjusteSaldo({ cuentaId: cBinance.id, nuevoSaldo: cBinance.saldo }); setModalVisible('ajusteSaldo'); } }} className="text-[10px] font-bold text-amber-400 hover:underline">
+                                                ⚙️ Ajustar Base
+                                            </button>
+                                        </div>
                                         <div className="text-3xl font-black text-amber-400 mt-1">
                                             {formatearMoneda(totales.inversionesUSD, 'USD')}
                                         </div>
@@ -970,8 +975,8 @@
                                         <button onClick={() => { setFormTrade({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('trade'); }} className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl transition">
                                             ⚡ + Registrar Trade
                                         </button>
-                                        <button onClick={() => { setFormCierreInv({ tipo: 'diario', nombre: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
-                                            🔒 Cierre de Inversión
+                                        <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
+                                            🔒 Cierre Semanal / Mensual
                                         </button>
                                     </div>
                                 </div>
@@ -1308,13 +1313,13 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Tipo de Cierre</label>
                                     <select value={formCierreInv.tipo} onChange={e => setFormCierreInv({ ...formCierreInv, tipo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
-                                        <option value="diario">🗓️ Cierre Diario</option>
+                                        <option value="semanal">🗓️ Cierre Semanal</option>
                                         <option value="mensual">📅 Cierre Mensual</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Nombre / Identificador</label>
-                                    <input type="text" placeholder="Ej: Cierre 15 Oct o Cierre Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <input type="text" placeholder="Ej: Cierre Semana 1 Oct u Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
                                     <label className="text-xs text-amber-400 font-bold">Tasa Dólar / TRM del Día (COP)</label>
@@ -1424,7 +1429,7 @@
                     {modalVisible === 'ajusteSaldo' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarAjusteSaldo} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
-                                <h3 className="font-bold text-white text-lg">⚙️ Calibrar Saldo Inicial</h3>
+                                <h3 className="font-bold text-white text-lg">⚙️ Ajustar Saldo / Inyectar Capital</h3>
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta</label>
                                     <div className="font-bold text-emerald-400 text-base py-1">
@@ -1432,7 +1437,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Nuevo Saldo Real</label>
+                                    <label className="text-xs text-neutral-400">Nuevo Saldo Total Real</label>
                                     <input type="number" required placeholder="0" value={formAjusteSaldo.nuevoSaldo} onChange={e => setFormAjusteSaldo({ ...formAjusteSaldo, nuevoSaldo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
                                 </div>
                                 <div className="flex gap-2 pt-2">
