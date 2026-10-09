@@ -23,7 +23,7 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen pb-20 md:pb-0">
+<body class="bg-black text-neutral-100 min-h-screen pb-20 md:pb-0 select-none">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -32,6 +32,9 @@
         // 🔑 Credenciales incrustadas de Supabase
         const SUPABASE_URL = "https://qdwqxnuccqzmkzffqlun.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_3raAVklcVTD0xtDGTPntHA_VrtJ9u_H";
+
+        // Hash SHA-256 precalculado para el PIN 150624
+        const PIN_HASH_PREDETERMINADO = "01d36c1a84f5be6ad0cfbd45137eb152e724cf65c4cd98a6eb792fffa70b9ce4";
 
         const obtenerFechaHoraActual = () => {
             const ahora = new Date();
@@ -43,6 +46,13 @@
             return new Date().toISOString().slice(0, 10);
         };
 
+        const hashPin = async (pin) => {
+            const msgUint8 = new TextEncoder().encode(pin + "_salt_jose_finanzas");
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        };
+
         const CUENTAS_PREDETERMINADAS = [
             { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, activa: true },
             { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, activa: true },
@@ -52,7 +62,7 @@
         ];
 
         const ESTADO_INICIAL = {
-            usuarioActual: { nombreUsuario: "jose", nombreCompleto: "Jose Pacheco" },
+            pinHash: PIN_HASH_PREDETERMINADO,
             cuentas: CUENTAS_PREDETERMINADAS,
             deudas: [],
             porCobrar: [],
@@ -64,22 +74,30 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v20');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v22');
                     if (guardado) {
                         const parsed = JSON.parse(guardado);
                         if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
+                        if (!parsed.pinHash) parsed.pinHash = PIN_HASH_PREDETERMINADO;
                         return parsed;
                     }
                     return ESTADO_INICIAL;
                 } catch(e) { return ESTADO_INICIAL; }
             });
 
+            const [autenticado, setAutenticado] = useState(() => {
+                return localStorage.getItem('mis_finanzas_sesion_activa') === 'true';
+            });
+            const [inputPin, setInputPin] = useState('');
+            const [recordarDispositivo, setRecordarDispositivo] = useState(true);
+            const [errorPin, setErrorPin] = useState('');
+            const [ocultarSaldos, setOcultarSaldos] = useState(false);
+
             const [estadoSincro, setEstadoSincro] = useState('espera');
             const [rubroActivo, setRubroActivo] = useState('inicio');
             const [modalVisible, setModalVisible] = useState(null);
             const [notificacion, setNotificacion] = useState(null);
 
-            // Filtros de Movimientos
             const [busquedaMov, setBusquedaMov] = useState('');
             const [filtroFechaMov, setFiltroFechaMov] = useState('todos');
 
@@ -106,7 +124,7 @@
 
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v20', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v22', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -129,6 +147,7 @@
                     if (respuesta && respuesta.content && typeof respuesta.content === 'object' && Object.keys(respuesta.content).length > 0) {
                         const remoto = respuesta.content;
                         if (!remoto.cuentas || remoto.cuentas.length === 0) remoto.cuentas = CUENTAS_PREDETERMINADAS;
+                        if (!remoto.pinHash) remoto.pinHash = PIN_HASH_PREDETERMINADO;
                         setDatos(remoto);
                         setEstadoSincro('exito');
                     } else {
@@ -165,7 +184,39 @@
                 guardarEnSupabase(nuevosDatos);
             };
 
-            const formatearMoneda = (valor) => '$' + (valor || 0).toLocaleString('es-CO');
+            const manejarVerificacionPin = async (e) => {
+                e.preventDefault();
+                if (inputPin.length < 4) return setErrorPin('El PIN debe tener entre 4 y 6 dígitos');
+
+                const h = await hashPin(inputPin);
+                const targetHash = datos.pinHash || PIN_HASH_PREDETERMINADO;
+
+                if (h === targetHash) {
+                    setAutenticado(true);
+                    setErrorPin('');
+                    if (recordarDispositivo) {
+                        localStorage.setItem('mis_finanzas_sesion_activa', 'true');
+                    } else {
+                        localStorage.removeItem('mis_finanzas_sesion_activa');
+                    }
+                } else {
+                    setErrorPin('❌ PIN incorrecto');
+                    setInputPin('');
+                }
+            };
+
+            const bloquearSesion = () => {
+                setAutenticado(false);
+                setInputPin('');
+                localStorage.removeItem('mis_finanzas_sesion_activa');
+                mostrarNotificacion("🔒 Sesión bloqueada");
+            };
+
+            const formatearMoneda = (valor) => {
+                if (ocultarSaldos) return '••••••';
+                return '$' + (valor || 0).toLocaleString('es-CO');
+            };
+
             const formatearFechaHora = (cadenaFecha) => {
                 if (!cadenaFecha) return '';
                 const d = new Date(cadenaFecha);
@@ -305,7 +356,6 @@
                 mostrarNotificacion("✅ Destinación guardada");
             };
 
-            // ⚡ OPCIÓN 2: EJECUTAR Y PAGAR UN GASTO DESTINADO (LIBERA Y REGISTRA EGRESO)
             const ejecutarPagoDestinacion = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formEjecutarDestino.monto);
@@ -314,10 +364,8 @@
                 const destinacion = (datos.destinaciones || []).find(d => d.id === formEjecutarDestino.destinacionId);
                 if (!destinacion) return;
 
-                // 1. Descontar saldo de la cuenta seleccionada
                 const cuentasAct = listaCuentas.map(c => c.id === formEjecutarDestino.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
 
-                // 2. Registrar el egreso en movimientos para mantener trazabilidad
                 const nuevoMov = {
                     id: 'm_' + Date.now(),
                     fechaHora: formEjecutarDestino.fechaHora || obtenerFechaHoraActual(),
@@ -328,7 +376,6 @@
                     categoria: 'Gasto Destinado'
                 };
 
-                // 3. Reducir o eliminar el fondo reservado para NO descontar doble
                 let destinacionesAct = [];
                 if (montoNum >= destinacion.monto) {
                     destinacionesAct = (datos.destinaciones || []).filter(d => d.id !== formEjecutarDestino.destinacionId);
@@ -468,7 +515,6 @@
                 mostrarNotificacion("📥 Reporte descargado en CSV");
             };
 
-            // Filtrado de Movimientos
             const movimientosFiltrados = useMemo(() => {
                 let lista = datos.movimientos || [];
 
@@ -503,7 +549,6 @@
                 return lista;
             }, [datos.movimientos, busquedaMov, filtroFechaMov, listaCuentas]);
 
-            // Helper de alertas de vencimiento
             const calcularAlertaVencimiento = (fechaVenc) => {
                 if (!fechaVenc) return null;
                 const hoy = new Date();
@@ -529,6 +574,51 @@
                 { id: 'cierres', etiqueta: '🔒 Cierre de Mes', corto: 'Cierres', icono: '🔒' }
             ];
 
+            // 🔐 PANTALLA DE BLOQUEO POR PIN
+            if (!autenticado) {
+                return (
+                    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+                        <form onSubmit={manejarVerificacionPin} className="bg-neutral-900 border border-neutral-800 p-6 md:p-8 rounded-3xl max-w-xs w-full text-center space-y-6 shadow-2xl">
+                            <div className="w-16 h-16 bg-neutral-950 border border-neutral-800 rounded-2xl flex items-center justify-center text-3xl mx-auto">
+                                🚀
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold">Mis Finanzas</h2>
+                                <p className="text-xs text-neutral-400 mt-1">Ingresa tu PIN de acceso</p>
+                            </div>
+
+                            <div className="space-y-3">
+                                <input
+                                    type="password"
+                                    maxLength="6"
+                                    autoFocus
+                                    required
+                                    placeholder="••••••"
+                                    value={inputPin}
+                                    onChange={e => { setErrorPin(''); setInputPin(e.target.value); }}
+                                    className="w-full bg-black border border-neutral-800 text-center text-2xl tracking-[0.4em] font-black py-3 rounded-2xl focus:outline-none focus:border-emerald-500 text-emerald-400"
+                                />
+                                {errorPin && <p className="text-xs text-red-500 font-bold">{errorPin}</p>}
+                            </div>
+
+                            <label className="flex items-center justify-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={recordarDispositivo}
+                                    onChange={e => setRecordarDispositivo(e.target.checked)}
+                                    className="rounded bg-black border-neutral-800 text-emerald-500 focus:ring-0"
+                                />
+                                Recordar este dispositivo
+                            </label>
+
+                            <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold py-3.5 rounded-2xl transition">
+                                Desbloquear
+                            </button>
+                        </form>
+                    </div>
+                );
+            }
+
             return (
                 <div className="flex flex-col min-h-screen bg-black text-neutral-100">
                     
@@ -553,6 +643,12 @@
                             </div>
 
                             <div className="flex items-center gap-1.5">
+                                <button onClick={() => setOcultarSaldos(!ocultarSaldos)} title="Ocultar/Mostrar saldos" className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">
+                                    {ocultarSaldos ? '👁️‍🗨️' : '👁️'}
+                                </button>
+                                <button onClick={bloquearSesion} title="Bloquear sesión" className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">
+                                    🔒
+                                </button>
                                 <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">
                                     ⇄ Transferir
                                 </button>
@@ -580,7 +676,7 @@
                         </div>
                     </header>
 
-                    {/* BARRA INFERIOR FIJA PARA CELULAR (SIN SCROLL / PERFECTAMENTE DISTRIBUIDA) */}
+                    {/* BARRA INFERIOR FIJA PARA CELULAR */}
                     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950 border-t border-neutral-900 px-1 py-1.5 grid grid-cols-7 gap-0.5 z-40">
                         {rubros.map(r => (
                             <button
@@ -605,7 +701,7 @@
                                 <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
                                     <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Patrimonio Neto Total</span>
                                     <div className="text-3xl md:text-5xl font-black text-white mt-1">
-                                        {formatearMoneda(totales.patrimonioNeto)} <span className="text-xs font-normal text-neutral-500">COP</span>
+                                        {formatearMoneda(totales.patrimonioNeto)} {!ocultarSaldos && <span className="text-xs font-normal text-neutral-500">COP</span>}
                                     </div>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 pt-4 border-t border-neutral-800">
@@ -672,7 +768,7 @@
                             </div>
                         )}
 
-                        {/* DESTINACIÓN DE FONDOS CON OPCIÓN 2 (EJECUCIÓN DIRECTA Y LIBERACIÓN) */}
+                        {/* DESTINACIÓN DE FONDOS */}
                         {rubroActivo === 'destinaciones' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
@@ -831,7 +927,7 @@
                             </div>
                         )}
 
-                        {/* MOVIMIENTOS CON FILTROS Y EXPORTACIÓN */}
+                        {/* MOVIMIENTOS */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-4">
                                 <div className="flex flex-col sm:flex-row gap-2 justify-between items-center bg-neutral-900 border border-neutral-800 p-3 rounded-2xl">
@@ -942,7 +1038,7 @@
 
                     </main>
 
-                    {/* MODAL REGISTRAR MOVIMIENTO */}
+                    {/* MODALES */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -984,7 +1080,6 @@
                         </div>
                     )}
 
-                    {/* MODAL TRANSFERENCIA ENTRE CUENTAS */}
                     {modalVisible === 'transferencia' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={realizarTransferencia} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -1017,7 +1112,6 @@
                         </div>
                     )}
 
-                    {/* MODAL AJUSTE DIRECTO DE SALDO */}
                     {modalVisible === 'ajusteSaldo' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarAjusteSaldo} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -1040,7 +1134,6 @@
                         </div>
                     )}
 
-                    {/* MODAL NUEVA DESTINACIÓN */}
                     {modalVisible === 'destinacion' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -1065,7 +1158,6 @@
                         </div>
                     )}
 
-                    {/* MODAL EJECUTAR GASTO DESTINADO */}
                     {modalVisible === 'ejecutarDestinacion' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={ejecutarPagoDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
