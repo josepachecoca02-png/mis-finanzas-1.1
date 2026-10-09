@@ -268,34 +268,78 @@
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
             const [formCierreInv, setFormCierreInv] = useState({ tipo: 'diario', nombre: '', tasaTRM: '3950' });
 
-            // Operaciones
+            // Operaciones Trades
             const guardarTrade = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formTrade.montoUSD);
                 if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Ingresa un monto en USD válido", 'error');
 
-                const esGain = formTrade.resultado === 'gain';
-                const deltaUSD = esGain ? montoNum : -montoNum;
+                let tradesAct = [...(datos.trades || [])];
+                let cuentasAct = [...listaCuentas];
 
+                if (formTrade.id) {
+                    const tradeAnt = tradesAct.find(t => t.id === formTrade.id);
+                    if (tradeAnt) {
+                        const deltaAntUSD = tradeAnt.resultado === 'gain' ? -tradeAnt.montoUSD : tradeAnt.montoUSD;
+                        const deltaNuevoUSD = formTrade.resultado === 'gain' ? montoNum : -montoNum;
+                        
+                        cuentasAct = cuentasAct.map(c => {
+                            if (c.tipo === 'Inversión' || c.moneda === 'USD') {
+                                return { ...c, saldo: Math.max(0, c.saldo + deltaAntUSD + deltaNuevoUSD) };
+                            }
+                            return c;
+                        });
+
+                        tradesAct = tradesAct.map(t => t.id === formTrade.id ? {
+                            ...t,
+                            par: formTrade.par,
+                            resultado: formTrade.resultado,
+                            montoUSD: montoNum,
+                            estrategia: formTrade.estrategia,
+                            fechaHora: formTrade.fechaHora || obtenerFechaHoraActual()
+                        } : t);
+                    }
+                } else {
+                    const deltaUSD = formTrade.resultado === 'gain' ? montoNum : -montoNum;
+                    cuentasAct = cuentasAct.map(c => {
+                        if (c.tipo === 'Inversión' || c.moneda === 'USD') {
+                            return { ...c, saldo: Math.max(0, c.saldo + deltaUSD) };
+                        }
+                        return c;
+                    });
+
+                    const nuevoTrade = {
+                        id: 'trade_' + Date.now(),
+                        fechaHora: formTrade.fechaHora || obtenerFechaHoraActual(),
+                        par: formTrade.par,
+                        resultado: formTrade.resultado,
+                        montoUSD: montoNum,
+                        estrategia: formTrade.estrategia
+                    };
+                    tradesAct = [nuevoTrade, ...tradesAct];
+                }
+
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: tradesAct });
+                setModalVisible(null);
+                mostrarNotificacion(formTrade.id ? "✅ Trade actualizado" : (formTrade.resultado === 'gain' ? "🟢 Trade positivo registrado (+USD)" : "🔴 Trade negativo registrado (-USD)"));
+            };
+
+            const eliminarTrade = (id) => {
+                if (!confirm("¿Eliminar este trade de la bitácora?")) return;
+                const trades = datos.trades || [];
+                const trade = trades.find(t => t.id === id);
+                if (!trade) return;
+
+                const deltaInverso = trade.resultado === 'gain' ? -trade.montoUSD : trade.montoUSD;
                 const cuentasAct = listaCuentas.map(c => {
                     if (c.tipo === 'Inversión' || c.moneda === 'USD') {
-                        return { ...c, saldo: Math.max(0, c.saldo + deltaUSD) };
+                        return { ...c, saldo: Math.max(0, c.saldo + deltaInverso) };
                     }
                     return c;
                 });
 
-                const nuevoTrade = {
-                    id: 'trade_' + Date.now(),
-                    fechaHora: formTrade.fechaHora || obtenerFechaHoraActual(),
-                    par: formTrade.par,
-                    resultado: formTrade.resultado,
-                    montoUSD: montoNum,
-                    estrategia: formTrade.estrategia
-                };
-
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: [nuevoTrade, ...(datos.trades || [])] });
-                setModalVisible(null);
-                mostrarNotificacion(esGain ? "🟢 Trade positivo registrado (+USD)" : "🔴 Trade negativo registrado (-USD)");
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: trades.filter(t => t.id !== id) });
+                mostrarNotificacion("🗑️ Trade eliminado");
             };
 
             const guardarCierreInversion = (e) => {
@@ -873,8 +917,14 @@
                                                         </div>
                                                         <p className="text-[11px] text-neutral-400 mt-1">{t.estrategia || 'Sin nota'} • <span className="font-mono text-[10px]">{formatearFechaHora(t.fechaHora)}</span></p>
                                                     </div>
-                                                    <div className={`text-base font-black ${t.resultado === 'gain' ? 'text-emerald-400' : 'text-red-500'}`}>
-                                                        {t.resultado === 'gain' ? '+' : '-'}{formatearMoneda(t.montoUSD, 'USD')}
+                                                    <div className="text-right space-y-1">
+                                                        <div className={`text-base font-black ${t.resultado === 'gain' ? 'text-emerald-400' : 'text-red-500'}`}>
+                                                            {t.resultado === 'gain' ? '+' : '-'}{formatearMoneda(t.montoUSD, 'USD')}
+                                                        </div>
+                                                        <div className="space-x-2 text-right">
+                                                            <button onClick={() => { setFormTrade({ id: t.id, par: t.par, resultado: t.resultado, montoUSD: t.montoUSD, estrategia: t.estrategia || '', fechaHora: t.fechaHora }); setModalVisible('trade'); }} className="text-[10px] font-bold text-neutral-400 hover:text-amber-400 underline">Editar</button>
+                                                            <button onClick={() => eliminarTrade(t.id)} className="text-[10px] font-bold text-neutral-500 hover:text-red-500 underline">Eliminar</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ))
@@ -1142,7 +1192,7 @@
                     {modalVisible === 'trade' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarTrade} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
-                                <h3 className="font-bold text-white text-lg">⚡ Registrar Operación / Trade</h3>
+                                <h3 className="font-bold text-white text-lg">{formTrade.id ? '✏️ Editar Trade' : '⚡ Registrar Operación / Trade'}</h3>
                                 <div>
                                     <label className="text-xs text-neutral-400">Activo / Par</label>
                                     <input type="text" required placeholder="Ej: BTC/USDT, GOLD, ETH" value={formTrade.par} onChange={e => setFormTrade({ ...formTrade, par: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold" />
@@ -1162,9 +1212,13 @@
                                     <label className="text-xs text-neutral-400">Estrategia / Notas</label>
                                     <input type="text" placeholder="Ej: Breakout, Scalping, Soporte 4H" value={formTrade.estrategia} onChange={e => setFormTrade({ ...formTrade, estrategia: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Fecha y Hora</label>
+                                    <input type="datetime-local" required value={formTrade.fechaHora} onChange={e => setFormTrade({ ...formTrade, fechaHora: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
-                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar Trade</button>
+                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">{formTrade.id ? 'Actualizar' : 'Guardar Trade'}</button>
                                 </div>
                             </form>
                         </div>
