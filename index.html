@@ -21,7 +21,7 @@
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
     </style>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen pb-20 md:pb-0">
+<body class="bg-black text-neutral-100 min-h-screen">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -43,8 +43,8 @@
                 { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, activa: true },
                 { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, activa: true },
                 { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, activa: true },
-                { id: "c4", nombre: "Binance", tipo: "Inversión", saldo: 0, activa: true },
-                { id: "c5", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, activa: true }
+                { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, activa: true },
+                { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, activa: true }
             ],
             deudas: [],
             porCobrar: [],
@@ -56,7 +56,7 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v16');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v17');
                     return guardado ? JSON.parse(guardado) : ESTADO_INICIAL;
                 } catch(e) { return ESTADO_INICIAL; }
             });
@@ -64,10 +64,10 @@
             const [estadoSincro, setEstadoSincro] = useState('espera');
             const [rubroActivo, setRubroActivo] = useState('inicio');
             const [modalVisible, setModalVisible] = useState(null);
+            const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
             const clienteSupabase = useRef(null);
 
-            // Inicializar cliente Supabase de forma segura
             useEffect(() => {
                 try {
                     if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -82,10 +82,9 @@
                 }
             }, []);
 
-            // Guardar en localStorage
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v16', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v17', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -142,7 +141,6 @@
                 guardarEnSupabase(nuevosDatos);
             };
 
-            // Formateadores
             const formatearMoneda = (valor) => '$' + (valor || 0).toLocaleString('es-CO');
             const formatearFechaHora = (cadenaFecha) => {
                 if (!cadenaFecha) return '';
@@ -150,7 +148,6 @@
                 return d.toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
             };
 
-            // Totales con deducción automática de destinaciones
             const totales = useMemo(() => {
                 const cuentas = datos?.cuentas || [];
                 const destinaciones = datos?.destinaciones || [];
@@ -170,7 +167,7 @@
                 return { saldoBruto, totalDestinado, disponibleReal, inversiones, porCobrar, deudas, patrimonioNeto };
             }, [datos]);
 
-            // Formularios
+            // Formulario de Movimiento con etiquetado de cuenta
             const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() });
@@ -179,7 +176,7 @@
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [nombreCierre, setNombreCierre] = useState('');
 
-            // Operaciones
+            // Guardar Movimiento actualizando el saldo de la cuenta correspondiente
             const guardarMovimiento = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
@@ -329,22 +326,25 @@
             };
 
             const rubros = [
-                { id: 'inicio', etiqueta: '📊 Inicio', corto: 'Inicio' },
-                { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas' },
-                { id: 'destinaciones', etiqueta: '🎯 Destinación de Fondos', corto: 'Destinos' },
-                { id: 'deudas', etiqueta: '🔴 Deudas', corto: 'Deudas' },
-                { id: 'porCobrar', etiqueta: '🟢 Me Deben', corto: 'Me Deben' },
-                { id: 'movimientos', etiqueta: '📜 Movimientos', corto: 'Historial' },
-                { id: 'cierres', etiqueta: '🔒 Cierre de Mes', corto: 'Cierres' }
+                { id: 'inicio', etiqueta: '📊 Inicio' },
+                { id: 'cuentas', etiqueta: '💳 Cuentas' },
+                { id: 'destinaciones', etiqueta: '🎯 Destinación de Fondos' },
+                { id: 'deudas', etiqueta: '🔴 Mis Deudas' },
+                { id: 'porCobrar', etiqueta: '🟢 Me Deben' },
+                { id: 'movimientos', etiqueta: '📜 Movimientos' },
+                { id: 'cierres', etiqueta: '🔒 Cierre de Mes' }
             ];
 
             return (
                 <div className="flex flex-col min-h-screen bg-black text-neutral-100">
                     
-                    {/* CABECERA SUPERIOR FIJA */}
+                    {/* CABECERA SUPERIOR */}
                     <header className="bg-neutral-950 border-b border-neutral-900 sticky top-0 z-30">
                         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
+                                <button onClick={() => setMenuMovilAbierto(!menuMovilAbierto)} className="md:hidden p-2 text-neutral-300 hover:text-white bg-neutral-900 rounded-lg border border-neutral-800">
+                                    {menuMovilAbierto ? '✕' : '☰ Rubros'}
+                                </button>
                                 <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-neutral-950 text-lg">J</div>
                                 <div>
                                     <h1 className="font-bold text-white text-base leading-none">Mis Finanzas</h1>
@@ -362,7 +362,7 @@
                             </div>
                         </div>
 
-                        {/* BARRA DE RUBROS FIJA PARA PC (PESTAÑAS SUPERIORES INTACTAS) */}
+                        {/* RUBROS SUPERIORES PARA PC Y MÓVIL */}
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
                             <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-hidden">
                                 {rubros.map(r => (
@@ -380,21 +380,22 @@
                         </div>
                     </header>
 
-                    {/* BARRA INFERIOR FIJA PARA CELULAR (BOTTOM NAV) */}
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 py-2 flex items-center justify-around z-40 overflow-x-auto">
-                        {rubros.map(r => (
-                            <button
-                                key={r.id}
-                                onClick={() => setRubroActivo(r.id)}
-                                className={`flex flex-col items-center py-1 px-1.5 min-w-[50px] rounded-lg text-[10px] font-bold transition ${
-                                    rubroActivo === r.id ? 'text-emerald-400 bg-neutral-900' : 'text-neutral-400 hover:text-neutral-200'
-                                }`}
-                            >
-                                <span className="text-sm">{r.etiqueta.split(' ')[0]}</span>
-                                <span className="mt-0.5 truncate text-[9px]">{r.corto}</span>
-                            </button>
-                        ))}
-                    </nav>
+                    {/* MENÚ MÓVIL DESPLEGABLE */}
+                    {menuMovilAbierto && (
+                        <div className="md:hidden bg-neutral-950 border-b border-neutral-900 p-3 grid grid-cols-2 gap-2 sticky top-[61px] z-20">
+                            {rubros.map(r => (
+                                <button
+                                    key={r.id}
+                                    onClick={() => { setRubroActivo(r.id); setMenuMovilAbierto(false); }}
+                                    className={`p-3 rounded-xl text-left text-xs font-bold border transition ${
+                                        rubroActivo === r.id ? 'bg-neutral-900 text-emerald-400 border-emerald-500/40' : 'bg-neutral-950 text-neutral-300 border-neutral-800'
+                                    }`}
+                                >
+                                    {r.etiqueta}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     {/* CONTENIDO PRINCIPAL */}
                     <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
@@ -436,34 +437,15 @@
                                         <div className="text-lg font-bold text-red-500 mt-1">{formatearMoneda(totales.deudas)}</div>
                                     </div>
                                 </div>
-
-                                {/* RESUMEN DE SALDOS DE CUENTAS EN EL INICIO */}
-                                <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-3">
-                                    <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
-                                        <h3 className="font-bold text-white text-base">💳 Resumen de Mis Cuentas</h3>
-                                        <span className="text-xs text-neutral-400">Total Bruto: <strong className="text-white">{formatearMoneda(totales.saldoBruto)}</strong></span>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-                                        {(datos.cuentas || []).map(c => (
-                                            <div key={c.id} className="bg-black border border-neutral-800 p-3.5 rounded-xl flex justify-between items-center">
-                                                <div>
-                                                    <span className="text-[9px] font-bold text-neutral-500 uppercase">{c.tipo}</span>
-                                                    <h4 className="font-bold text-white text-sm">{c.nombre}</h4>
-                                                </div>
-                                                <div className="text-base font-black text-emerald-400">{formatearMoneda(c.saldo)}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
                             </div>
                         )}
 
-                        {/* MIS CUENTAS DETALLADAS */}
+                        {/* CUENTAS Y SALDOS DE CADA UNA */}
                         {rubroActivo === 'cuentas' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                     <div>
-                                        <div className="text-xs text-neutral-400">Saldo Total en Cuentas</div>
+                                        <div className="text-xs text-neutral-400">Saldo Total Bruto en Cuentas</div>
                                         <div className="text-2xl font-black text-white mt-0.5">{formatearMoneda(totales.saldoBruto)}</div>
                                     </div>
                                     <div className="text-right">
@@ -565,7 +547,7 @@
                                                     </div>
 
                                                     <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2 rounded-xl border border-red-600/30 transition">
-                                                        + Registrar Abono (Resta)
+                                                        + Registrar Abono (Sale Dinero)
                                                     </button>
                                                 </div>
                                             );
@@ -617,7 +599,7 @@
                                                     </div>
 
                                                     <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition">
-                                                        + Registrar Pago Recibido (Suma)
+                                                        + Registrar Pago Recibido (Entra Dinero)
                                                     </button>
                                                 </div>
                                             );
@@ -627,7 +609,7 @@
                             </div>
                         )}
 
-                        {/* MOVIMIENTOS */}
+                        {/* MOVIMIENTOS CON MUESTRA DE CUENTA ORIGEN / DESTINO */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-2">
                                 {(!datos.movimientos || datos.movimientos.length === 0) ? (
@@ -643,7 +625,9 @@
                                                         <span className={`w-2.5 h-2.5 rounded-full ${esIngreso ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
                                                         <h4 className="font-bold text-white text-sm">{m.concepto}</h4>
                                                     </div>
-                                                    <p className="text-[11px] text-neutral-400">{c ? c.nombre : '-'} • <span className="font-mono">{formatearFechaHora(m.fechaHora)}</span></p>
+                                                    <p className="text-[11px] text-neutral-400">
+                                                        <span className="font-bold text-emerald-400">{c ? c.nombre : 'Cuenta desconocida'}</span> • <span className="font-mono">{formatearFechaHora(m.fechaHora)}</span>
+                                                    </p>
                                                 </div>
                                                 <div className="text-right">
                                                     <div className={`text-base font-black ${esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>
@@ -707,7 +691,7 @@
 
                     </main>
 
-                    {/* MODALES */}
+                    {/* MODAL MOVIMIENTO (SELECCIÓN DE CUENTA DE SALIDA / ENTRADA) */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -719,23 +703,23 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Tipo de Transacción</label>
                                     <select value={formMov.tipo} onChange={e => setFormMov({ ...formMov, tipo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
-                                        <option value="ingreso" className="text-emerald-400">🟢 Ingreso (Suma)</option>
-                                        <option value="egreso" className="text-red-500">🔴 Egreso (Resta)</option>
+                                        <option value="ingreso" className="text-emerald-400">🟢 Entra Dinero (Ingreso)</option>
+                                        <option value="egreso" className="text-red-500">🔴 Sale Dinero (Egreso)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">¿De / Hacia qué Cuenta? (Etiqueta)</label>
+                                    <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} (Saldo actual: {formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Concepto</label>
-                                    <input type="text" required placeholder="Ej: Sueldo, Compras" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <input type="text" required placeholder="Ej: Pago de nómina, Compras, Transferencia" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Monto (COP)</label>
                                     <input type="number" required placeholder="0" value={formMov.monto} onChange={e => setFormMov({ ...formMov, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-neutral-400">Cuenta</label>
-                                    <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
-                                    </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
