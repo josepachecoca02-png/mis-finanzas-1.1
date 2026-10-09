@@ -37,15 +37,17 @@
             return ahora.toISOString().slice(0, 16);
         };
 
+        const CUENTAS_PREDETERMINADAS = [
+            { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, activa: true },
+            { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, activa: true },
+            { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, activa: true },
+            { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, activa: true },
+            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, activa: true }
+        ];
+
         const ESTADO_INICIAL = {
             usuarioActual: { nombreUsuario: "jose", nombreCompleto: "Jose Pacheco" },
-            cuentas: [
-                { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, activa: true },
-                { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, activa: true },
-                { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, activa: true },
-                { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, activa: true },
-                { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, activa: true }
-            ],
+            cuentas: CUENTAS_PREDETERMINADAS,
             deudas: [],
             porCobrar: [],
             movimientos: [],
@@ -56,8 +58,13 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v17');
-                    return guardado ? JSON.parse(guardado) : ESTADO_INICIAL;
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v18');
+                    if (guardado) {
+                        const parsed = JSON.parse(guardado);
+                        if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
+                        return parsed;
+                    }
+                    return ESTADO_INICIAL;
                 } catch(e) { return ESTADO_INICIAL; }
             });
 
@@ -84,7 +91,7 @@
 
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v17', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v18', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -105,7 +112,9 @@
                     }
 
                     if (respuesta && respuesta.content && typeof respuesta.content === 'object' && Object.keys(respuesta.content).length > 0) {
-                        setDatos(respuesta.content);
+                        const remoto = respuesta.content;
+                        if (!remoto.cuentas || remoto.cuentas.length === 0) remoto.cuentas = CUENTAS_PREDETERMINADAS;
+                        setDatos(remoto);
                         setEstadoSincro('exito');
                     } else {
                         guardarEnSupabase(datos);
@@ -148,14 +157,19 @@
                 return d.toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
             };
 
+            // Asegurar listado de cuentas siempre válido
+            const listaCuentas = useMemo(() => {
+                return (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS;
+            }, [datos]);
+
             const totales = useMemo(() => {
-                const cuentas = datos?.cuentas || [];
+                const cuentas = listaCuentas;
                 const destinaciones = datos?.destinaciones || [];
                 const porCobrarLista = datos?.porCobrar || [];
                 const deudasLista = datos?.deudas || [];
 
-                const saldoBruto = cuentas.filter(c => c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
-                const inversiones = cuentas.filter(c => c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
+                const saldoBruto = cuentas.filter(c => c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
+                const inversiones = cuentas.filter(c => c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
                 const totalDestinado = destinaciones.reduce((acc, d) => acc + (d.monto || 0), 0);
                 
                 const disponibleReal = Math.max(0, saldoBruto - totalDestinado);
@@ -165,9 +179,9 @@
                 const patrimonioNeto = disponibleReal + inversiones + totalDestinado + porCobrar - deudas;
 
                 return { saldoBruto, totalDestinado, disponibleReal, inversiones, porCobrar, deudas, patrimonioNeto };
-            }, [datos]);
+            }, [datos, listaCuentas]);
 
-            // Formulario de Movimiento con etiquetado de cuenta
+            // Formulario de Movimiento
             const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() });
@@ -176,13 +190,13 @@
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [nombreCierre, setNombreCierre] = useState('');
 
-            // Guardar Movimiento actualizando el saldo de la cuenta correspondiente
+            // Guardar Movimiento clasificando por cuenta elegida
             const guardarMovimiento = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Ingresa un monto válido.");
 
-                let cuentasAct = [...(datos.cuentas || [])];
+                let cuentasAct = [...listaCuentas];
                 let movsAct = [...(datos.movimientos || [])];
 
                 if (formMov.id) {
@@ -213,7 +227,7 @@
                 const movs = datos.movimientos || [];
                 const mov = movs.find(m => m.id === id);
                 if (!mov) return;
-                const cuentasAct = (datos.cuentas || []).map(c => c.id === mov.cuentaId ? { ...c, saldo: mov.tipo === 'ingreso' ? c.saldo - mov.monto : c.saldo + mov.monto } : c);
+                const cuentasAct = listaCuentas.map(c => c.id === mov.cuentaId ? { ...c, saldo: mov.tipo === 'ingreso' ? c.saldo - mov.monto : c.saldo + mov.monto } : c);
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: movs.filter(m => m.id !== id) });
             };
 
@@ -258,7 +272,7 @@
                 const montoNum = parseFloat(formAbonoDeuda.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Monto inválido");
 
-                const cuentasAct = (datos.cuentas || []).map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
+                const cuentasAct = listaCuentas.map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
                 const deudasAct = (datos.deudas || []).map(d => {
                     if (d.id === formAbonoDeuda.deudaId) {
                         return { ...d, abonos: [...(d.abonos || []), { id: 'ab_' + Date.now(), monto: montoNum, fechaHora: formAbonoDeuda.fechaHora || obtenerFechaHoraActual(), cuentaId: formAbonoDeuda.cuentaId }] };
@@ -294,7 +308,7 @@
                 const montoNum = parseFloat(formAbonoCobro.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Monto inválido");
 
-                const cuentasAct = (datos.cuentas || []).map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + montoNum } : c);
+                const cuentasAct = listaCuentas.map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + montoNum } : c);
                 const cobrosAct = (datos.porCobrar || []).map(r => {
                     if (r.id === formAbonoCobro.cobroId) {
                         return { ...r, abonos: [...(r.abonos || []), { id: 'rab_' + Date.now(), monto: montoNum, fechaHora: formAbonoCobro.fechaHora || obtenerFechaHoraActual(), cuentaId: formAbonoCobro.cuentaId }] };
@@ -345,7 +359,8 @@
                                 <button onClick={() => setMenuMovilAbierto(!menuMovilAbierto)} className="md:hidden p-2 text-neutral-300 hover:text-white bg-neutral-900 rounded-lg border border-neutral-800">
                                     {menuMovilAbierto ? '✕' : '☰ Rubros'}
                                 </button>
-                                <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-neutral-950 text-lg">J</div>
+                                {/* 🚀 EMOJI DE COHETE SOLICITADO */}
+                                <div className="w-9 h-9 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-center text-xl">🚀</div>
                                 <div>
                                     <h1 className="font-bold text-white text-base leading-none">Mis Finanzas</h1>
                                     <span className="text-[10px] text-emerald-400 font-semibold">Jose Pacheco</span>
@@ -356,13 +371,13 @@
                                 <button onClick={cargarDesdeSupabase} title="Sincronizar" className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition cursor-pointer ${estadoSincro === 'sincronizando' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : estadoSincro === 'exito' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>
                                     {estadoSincro === 'sincronizando' ? '⏳ Sincronizando' : estadoSincro === 'exito' ? '⚡ En línea' : '🔄 Reconectar'}
                                 </button>
-                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3.5 py-2 rounded-xl text-xs font-extrabold transition">
+                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3.5 py-2 rounded-xl text-xs font-extrabold transition">
                                     + Movimiento
                                 </button>
                             </div>
                         </div>
 
-                        {/* RUBROS SUPERIORES PARA PC Y MÓVIL */}
+                        {/* RUBROS SUPERIORES DE NAVEGACIÓN */}
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
                             <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-hidden">
                                 {rubros.map(r => (
@@ -455,7 +470,7 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                    {(datos.cuentas || []).map(c => (
+                                    {listaCuentas.map(c => (
                                         <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                             <div>
                                                 <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo}</span>
@@ -546,7 +561,7 @@
                                                         </div>
                                                     </div>
 
-                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2 rounded-xl border border-red-600/30 transition">
+                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2 rounded-xl border border-red-600/30 transition">
                                                         + Registrar Abono (Sale Dinero)
                                                     </button>
                                                 </div>
@@ -598,7 +613,7 @@
                                                         </div>
                                                     </div>
 
-                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition">
+                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition">
                                                         + Registrar Pago Recibido (Entra Dinero)
                                                     </button>
                                                 </div>
@@ -609,14 +624,14 @@
                             </div>
                         )}
 
-                        {/* MOVIMIENTOS CON MUESTRA DE CUENTA ORIGEN / DESTINO */}
+                        {/* MOVIMIENTOS CON ETIQUETA DE CUENTA DE ORIGEN / DESTINO */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-2">
                                 {(!datos.movimientos || datos.movimientos.length === 0) ? (
                                     <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin movimientos registrados.</div>
                                 ) : (
                                     datos.movimientos.map(m => {
-                                        const c = (datos.cuentas || []).find(cuenta => cuenta.id === m.cuentaId);
+                                        const c = listaCuentas.find(cuenta => cuenta.id === m.cuentaId);
                                         const esIngreso = m.tipo === 'ingreso';
                                         return (
                                             <div key={m.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
@@ -626,7 +641,7 @@
                                                         <h4 className="font-bold text-white text-sm">{m.concepto}</h4>
                                                     </div>
                                                     <p className="text-[11px] text-neutral-400">
-                                                        <span className="font-bold text-emerald-400">{c ? c.nombre : 'Cuenta desconocida'}</span> • <span className="font-mono">{formatearFechaHora(m.fechaHora)}</span>
+                                                        <span className="font-bold text-emerald-400">{c ? c.nombre : 'Cuenta general'}</span> • <span className="font-mono">{formatearFechaHora(m.fechaHora)}</span>
                                                     </p>
                                                 </div>
                                                 <div className="text-right">
@@ -691,7 +706,7 @@
 
                     </main>
 
-                    {/* MODAL MOVIMIENTO (SELECCIÓN DE CUENTA DE SALIDA / ENTRADA) */}
+                    {/* MODAL REGISTRAR MOVIMIENTO CON CLASIFICACIÓN DE CUENTA (EFECTIVO, NEQUI, BANCOLOMBIA, DAVIPLATA...) */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -708,14 +723,18 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">¿De / Hacia qué Cuenta? (Etiqueta)</label>
-                                    <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
-                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} (Saldo actual: {formatearMoneda(c.saldo)})</option>)}
+                                    <label className="text-xs text-emerald-400 font-bold">¿A/De qué cuenta entra o sale el dinero?</label>
+                                    <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        {listaCuentas.map(c => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.nombre} (Saldo actual: {formatearMoneda(c.saldo)})
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Concepto</label>
-                                    <input type="text" required placeholder="Ej: Pago de nómina, Compras, Transferencia" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <input type="text" required placeholder="Ej: Pago de nómina, Compras, Mercado" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Monto (COP)</label>
@@ -803,8 +822,8 @@
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Salida</label>
-                                    <select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                    <select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -849,8 +868,8 @@
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Ingreso</label>
-                                    <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                    <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
