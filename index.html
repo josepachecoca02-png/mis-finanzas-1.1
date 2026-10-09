@@ -33,7 +33,7 @@
         const SUPABASE_URL = "https://qdwqxnuccqzmkzffqlun.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_3raAVklcVTD0xtDGTPntHA_VrtJ9u_H";
 
-        // Hash SHA-256 precalculado para el PIN 150624
+        const PIN_EXACTO = "150624";
         const PIN_HASH_PREDETERMINADO = "01d36c1a84f5be6ad0cfbd45137eb152e724cf65c4cd98a6eb792fffa70b9ce4";
 
         const obtenerFechaHoraActual = () => {
@@ -74,11 +74,11 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v22');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v23');
                     if (guardado) {
                         const parsed = JSON.parse(guardado);
                         if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
-                        if (!parsed.pinHash) parsed.pinHash = PIN_HASH_PREDETERMINADO;
+                        parsed.pinHash = PIN_HASH_PREDETERMINADO;
                         return parsed;
                     }
                     return ESTADO_INICIAL;
@@ -124,7 +124,7 @@
 
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v22', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v23', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -147,7 +147,7 @@
                     if (respuesta && respuesta.content && typeof respuesta.content === 'object' && Object.keys(respuesta.content).length > 0) {
                         const remoto = respuesta.content;
                         if (!remoto.cuentas || remoto.cuentas.length === 0) remoto.cuentas = CUENTAS_PREDETERMINADAS;
-                        if (!remoto.pinHash) remoto.pinHash = PIN_HASH_PREDETERMINADO;
+                        remoto.pinHash = PIN_HASH_PREDETERMINADO;
                         setDatos(remoto);
                         setEstadoSincro('exito');
                     } else {
@@ -180,18 +180,16 @@
             };
 
             const actualizarYGuardar = (nuevosDatos) => {
-                setDatos(nuevosDatos);
-                guardarEnSupabase(nuevosDatos);
+                const datosAjustados = { ...nuevosDatos, pinHash: PIN_HASH_PREDETERMINADO };
+                setDatos(datosAjustados);
+                guardarEnSupabase(datosAjustados);
             };
 
             const manejarVerificacionPin = async (e) => {
                 e.preventDefault();
-                if (inputPin.length < 4) return setErrorPin('El PIN debe tener entre 4 y 6 dígitos');
-
                 const h = await hashPin(inputPin);
-                const targetHash = datos.pinHash || PIN_HASH_PREDETERMINADO;
 
-                if (h === targetHash) {
+                if (inputPin === PIN_EXACTO || h === PIN_HASH_PREDETERMINADO) {
                     setAutenticado(true);
                     setErrorPin('');
                     if (recordarDispositivo) {
