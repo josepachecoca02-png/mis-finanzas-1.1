@@ -23,7 +23,7 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen pb-20 md:pb-0 select-none">
+<body class="bg-black text-neutral-100 min-h-screen pb-24 md:pb-0 select-none">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -278,8 +278,14 @@
 
             // Formularios de Trading e Inversión
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
-            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', gananciaUSD: '', tasaTRM: '3950' });
+            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
             const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
+
+            // Ganancias calculadas automáticamente desde la bitácora
+            const gananciasAcumuladasUSD = useMemo(() => {
+                const trades = datos?.trades || [];
+                return trades.reduce((acc, t) => t.resultado === 'gain' ? acc + (parseFloat(t.montoUSD) || 0) : acc, 0);
+            }, [datos.trades]);
 
             // Operaciones Trades
             const guardarTrade = (e) => {
@@ -363,9 +369,9 @@
             const guardarCierreInversion = (e) => {
                 e.preventDefault();
                 const tasaNum = parseFloat(formCierreInv.tasaTRM);
-                const gananciaNumUSD = parseFloat(formCierreInv.gananciaUSD) || 0;
                 if (isNaN(tasaNum) || tasaNum <= 0) return mostrarNotificacion("Ingresa una tasa TRM válida", 'error');
 
+                const gananciaNumUSD = gananciasAcumuladasUSD;
                 const gananciaCOP = gananciaNumUSD * tasaNum;
 
                 const cuentasAct = listaCuentas.map(c => {
@@ -400,7 +406,7 @@
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])], movimientos: nuevosMovs });
                 setModalVisible(null);
-                mostrarNotificacion("🔒 Cierre guardado: Utilidad añadida al Disponible Real Libre en COP");
+                mostrarNotificacion("🔒 Cierre procesado: Utilidades cargadas al Disponible Real");
             };
 
             const transferirUtilidadBinance = (e) => {
@@ -883,7 +889,7 @@
                                 <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">
                                     ⇄ Transferir
                                 </button>
-                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold transition">
+                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold transition">
                                     + Movimiento
                                 </button>
                             </div>
@@ -907,8 +913,17 @@
                         </div>
                     </header>
 
+                    {/* BOTÓN FLOTANTE MÓVIL (TRANSLÚCIDO) */}
+                    <button
+                        onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }}
+                        className="md:hidden fixed bottom-16 right-4 z-50 bg-emerald-500/80 hover:bg-emerald-400 text-neutral-950 p-3.5 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 transition active:scale-95 flex items-center justify-center text-xl font-black"
+                        title="Agregar Movimiento"
+                    >
+                        ➕
+                    </button>
+
                     {/* BARRA INFERIOR FIJA PARA CELULAR */}
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950 border-t border-neutral-900 px-1 py-1.5 grid grid-cols-7 gap-0.5 z-40">
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 py-1.5 grid grid-cols-7 gap-0.5 z-40">
                         {rubros.map(r => (
                             <button
                                 key={r.id}
@@ -1080,7 +1095,7 @@
                                         <button onClick={() => { setFormTrade({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('trade'); }} className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl transition">
                                             ⚡ + Registrar Trade
                                         </button>
-                                        <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', gananciaUSD: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
+                                        <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
                                             🔒 Cierre Semanal / Mensual
                                         </button>
                                     </div>
@@ -1426,16 +1441,18 @@
                                     <label className="text-xs text-neutral-400">Nombre del Período</label>
                                     <input type="text" placeholder="Ej: Cierre Semana 1 Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
-                                <div>
-                                    <label className="text-xs text-emerald-400 font-bold">Ganancia Neta del Período (USD)</label>
-                                    <input type="number" step="0.01" required placeholder="Ej: 50.00" value={formCierreInv.gananciaUSD} onChange={e => setFormCierreInv({ ...formCierreInv, gananciaUSD: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
+                                <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-800 space-y-1">
+                                    <div className="text-xs text-neutral-400">Ganancia Acumulada Automática (Bitácora):</div>
+                                    <div className="text-2xl font-black text-emerald-400">
+                                        +{formatearMoneda(gananciasAcumuladasUSD, 'USD')}
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="text-xs text-amber-400 font-bold">Tasa Dólar / TRM del Día (COP)</label>
                                     <input type="number" required placeholder="3950" value={formCierreInv.tasaTRM} onChange={e => setFormCierreInv({ ...formCierreInv, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
                                 </div>
                                 <div className="bg-black/60 p-3 rounded-xl border border-neutral-800 text-xs space-y-1">
-                                    <div className="text-neutral-400">Utilidad que pasará a Disponible COP: <strong className="text-emerald-400">{formatearMoneda((parseFloat(formCierreInv.gananciaUSD) || 0) * (parseFloat(formCierreInv.tasaTRM) || 0), 'COP')}</strong></div>
+                                    <div className="text-neutral-400">Utilidad calculada que pasará a Disponible COP: <strong className="text-emerald-400">{formatearMoneda(gananciasAcumuladasUSD * (parseFloat(formCierreInv.tasaTRM) || 0), 'COP')}</strong></div>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
