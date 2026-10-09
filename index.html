@@ -54,11 +54,11 @@
         };
 
         const CUENTAS_PREDETERMINADAS = [
-            { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, activa: true },
-            { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, activa: true },
-            { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, activa: true },
-            { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, activa: true },
-            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, activa: true }
+            { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
+            { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
+            { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, moneda: "COP", activa: true },
+            { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, moneda: "COP", activa: true },
+            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, moneda: "USD", activa: true }
         ];
 
         const ESTADO_INICIAL = {
@@ -68,17 +68,21 @@
             porCobrar: [],
             movimientos: [],
             destinaciones: [],
-            cierresMensuales: []
+            cierresMensuales: [],
+            trades: [],
+            cierresInversion: []
         };
 
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v23');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v24');
                     if (guardado) {
                         const parsed = JSON.parse(guardado);
                         if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
                         parsed.pinHash = PIN_HASH_PREDETERMINADO;
+                        if (!parsed.trades) parsed.trades = [];
+                        if (!parsed.cierresInversion) parsed.cierresInversion = [];
                         return parsed;
                     }
                     return ESTADO_INICIAL;
@@ -124,7 +128,7 @@
 
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v23', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v24', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -148,6 +152,8 @@
                         const remoto = respuesta.content;
                         if (!remoto.cuentas || remoto.cuentas.length === 0) remoto.cuentas = CUENTAS_PREDETERMINADAS;
                         remoto.pinHash = PIN_HASH_PREDETERMINADO;
+                        if (!remoto.trades) remoto.trades = [];
+                        if (!remoto.cierresInversion) remoto.cierresInversion = [];
                         setDatos(remoto);
                         setEstadoSincro('exito');
                     } else {
@@ -210,9 +216,10 @@
                 mostrarNotificacion("🔒 Sesión bloqueada");
             };
 
-            const formatearMoneda = (valor) => {
+            const formatearMoneda = (valor, moneda = 'COP') => {
                 if (ocultarSaldos) return '••••••';
-                return '$' + (valor || 0).toLocaleString('es-CO');
+                if (moneda === 'USD') return '$' + (valor || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
+                return '$' + (valor || 0).toLocaleString('es-CO') + ' COP';
             };
 
             const formatearFechaHora = (cadenaFecha) => {
@@ -231,17 +238,18 @@
                 const porCobrarLista = datos?.porCobrar || [];
                 const deudasLista = datos?.deudas || [];
 
-                const saldoBruto = cuentas.filter(c => c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
-                const inversiones = cuentas.filter(c => c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
-                const totalDestinado = destinaciones.reduce((acc, d) => acc + (d.monto || 0), 0);
+                const saldoBrutoCOP = cuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
+                const inversionesUSD = cuentas.filter(c => c.moneda === 'USD' || c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
                 
-                const disponibleReal = Math.max(0, saldoBruto - totalDestinado);
+                const totalDestinado = destinaciones.reduce((acc, d) => acc + (d.monto || 0), 0);
+                const disponibleRealCOP = Math.max(0, saldoBrutoCOP - totalDestinado);
 
                 const porCobrar = porCobrarLista.reduce((acc, r) => acc + Math.max(0, r.montoOriginal - ((r.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
                 const deudas = deudasLista.reduce((acc, d) => acc + Math.max(0, d.montoOriginal - ((d.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
-                const patrimonioNeto = disponibleReal + inversiones + totalDestinado + porCobrar - deudas;
+                
+                const patrimonioNetoCOP = disponibleRealCOP + totalDestinado + porCobrar - deudas;
 
-                return { saldoBruto, totalDestinado, disponibleReal, inversiones, porCobrar, deudas, patrimonioNeto };
+                return { saldoBrutoCOP, totalDestinado, disponibleRealCOP, inversionesUSD, porCobrar, deudas, patrimonioNetoCOP };
             }, [datos, listaCuentas]);
 
             // Formularios
@@ -256,7 +264,63 @@
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [nombreCierre, setNombreCierre] = useState('');
 
+            // Formularios de Trading e Inversión
+            const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
+            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'diario', nombre: '', tasaTRM: '3950' });
+
             // Operaciones
+            const guardarTrade = (e) => {
+                e.preventDefault();
+                const montoNum = parseFloat(formTrade.montoUSD);
+                if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Ingresa un monto en USD válido", 'error');
+
+                const esGain = formTrade.resultado === 'gain';
+                const deltaUSD = esGain ? montoNum : -montoNum;
+
+                const cuentasAct = listaCuentas.map(c => {
+                    if (c.tipo === 'Inversión' || c.moneda === 'USD') {
+                        return { ...c, saldo: Math.max(0, c.saldo + deltaUSD) };
+                    }
+                    return c;
+                });
+
+                const nuevoTrade = {
+                    id: 'trade_' + Date.now(),
+                    fechaHora: formTrade.fechaHora || obtenerFechaHoraActual(),
+                    par: formTrade.par,
+                    resultado: formTrade.resultado,
+                    montoUSD: montoNum,
+                    estrategia: formTrade.estrategia
+                };
+
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: [nuevoTrade, ...(datos.trades || [])] });
+                setModalVisible(null);
+                mostrarNotificacion(esGain ? "🟢 Trade positivo registrado (+USD)" : "🔴 Trade negativo registrado (-USD)");
+            };
+
+            const guardarCierreInversion = (e) => {
+                e.preventDefault();
+                const tasaNum = parseFloat(formCierreInv.tasaTRM);
+                if (isNaN(tasaNum) || tasaNum <= 0) return mostrarNotificacion("Ingresa una tasa TRM válida", 'error');
+
+                const totalUSD = totales.inversionesUSD;
+                const totalCOP = totalUSD * tasaNum;
+
+                const nuevoCierre = {
+                    id: 'cierre_inv_' + Date.now(),
+                    tipo: formCierreInv.tipo,
+                    nombre: formCierreInv.nombre.trim() || (formCierreInv.tipo === 'diario' ? 'Cierre Diario' : 'Cierre Mensual'),
+                    fechaHora: obtenerFechaHoraActual(),
+                    totalUSD: totalUSD,
+                    tasaTRM: tasaNum,
+                    totalCOP: totalCOP
+                };
+
+                actualizarYGuardar({ ...datos, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])] });
+                setModalVisible(null);
+                mostrarNotificacion("🔒 Cierre de inversión registrado con éxito");
+            };
+
             const guardarMovimiento = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
@@ -565,11 +629,11 @@
             const rubros = [
                 { id: 'inicio', etiqueta: '📊 Inicio', corto: 'Inicio', icono: '📊' },
                 { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas', icono: '💳' },
-                { id: 'destinaciones', etiqueta: '🎯 Destinación de Fondos', corto: 'Destinos', icono: '🎯' },
+                { id: 'inversiones', etiqueta: '📈 Trades & Inversiones', corto: 'Trades', icono: '📈' },
+                { id: 'destinaciones', etiqueta: '🎯 Destinaciones', corto: 'Destinos', icono: '🎯' },
                 { id: 'deudas', etiqueta: '🔴 Mis Deudas', corto: 'Deudas', icono: '🔴' },
                 { id: 'porCobrar', etiqueta: '🟢 Me Deben', corto: 'Me Deben', icono: '🟢' },
-                { id: 'movimientos', etiqueta: '📜 Movimientos', corto: 'Historial', icono: '📜' },
-                { id: 'cierres', etiqueta: '🔒 Cierre de Mes', corto: 'Cierres', icono: '🔒' }
+                { id: 'movimientos', etiqueta: '📜 Historial', corto: 'Historial', icono: '📜' }
             ];
 
             // 🔐 PANTALLA DE BLOQUEO POR PIN
@@ -647,6 +711,9 @@
                                 <button onClick={bloquearSesion} title="Bloquear sesión" className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">
                                     🔒
                                 </button>
+                                <button onClick={() => setModalVisible('cierre')} className="bg-neutral-900 hover:bg-neutral-800 text-emerald-400 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                                    🔒 Cierre
+                                </button>
                                 <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">
                                     ⇄ Transferir
                                 </button>
@@ -697,53 +764,53 @@
                         {rubroActivo === 'inicio' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
-                                    <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Patrimonio Neto Total</span>
+                                    <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Patrimonio Neto Local (Pesos)</span>
                                     <div className="text-3xl md:text-5xl font-black text-white mt-1">
-                                        {formatearMoneda(totales.patrimonioNeto)} {!ocultarSaldos && <span className="text-xs font-normal text-neutral-500">COP</span>}
+                                        {formatearMoneda(totales.patrimonioNetoCOP, 'COP')}
                                     </div>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 pt-4 border-t border-neutral-800">
                                         <div className="bg-black p-4 rounded-xl border border-neutral-800">
-                                            <div className="text-xs text-neutral-400">💰 Disponible Real</div>
-                                            <div className="text-xl font-black text-emerald-400 mt-1">{formatearMoneda(totales.disponibleReal)}</div>
+                                            <div className="text-xs text-neutral-400">💰 Disponible Real COP</div>
+                                            <div className="text-xl font-black text-emerald-400 mt-1">{formatearMoneda(totales.disponibleRealCOP, 'COP')}</div>
                                             <div className="text-[10px] text-neutral-500 mt-0.5">Saldo bruto menos destinaciones</div>
                                         </div>
                                         <div className="bg-black p-4 rounded-xl border border-neutral-800">
-                                            <div className="text-xs text-neutral-400">🎯 Fondos Destinados</div>
-                                            <div className="text-xl font-black text-white mt-1">{formatearMoneda(totales.totalDestinado)}</div>
-                                            <div className="text-[10px] text-neutral-500 mt-0.5">Reservado en destinaciones</div>
+                                            <div className="text-xs text-neutral-400">📈 Capital de Inversión USD</div>
+                                            <div className="text-xl font-black text-amber-400 mt-1">{formatearMoneda(totales.inversionesUSD, 'USD')}</div>
+                                            <div className="text-[10px] text-neutral-500 mt-0.5">Gestión operativa en dólares</div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl">
-                                        <div className="text-xs text-neutral-400 font-semibold">📈 Inversiones</div>
-                                        <div className="text-lg font-bold text-emerald-400 mt-1">{formatearMoneda(totales.inversiones)}</div>
+                                        <div className="text-xs text-neutral-400 font-semibold">🎯 Fondos Destinados</div>
+                                        <div className="text-lg font-bold text-white mt-1">{formatearMoneda(totales.totalDestinado, 'COP')}</div>
                                     </div>
                                     <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl">
                                         <div className="text-xs text-neutral-400 font-semibold">🟢 Me Deben</div>
-                                        <div className="text-lg font-bold text-emerald-400 mt-1">{formatearMoneda(totales.porCobrar)}</div>
+                                        <div className="text-lg font-bold text-emerald-400 mt-1">{formatearMoneda(totales.porCobrar, 'COP')}</div>
                                     </div>
                                     <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl">
                                         <div className="text-xs text-neutral-400 font-semibold">🔴 Total Deudas</div>
-                                        <div className="text-lg font-bold text-red-500 mt-1">{formatearMoneda(totales.deudas)}</div>
+                                        <div className="text-lg font-bold text-red-500 mt-1">{formatearMoneda(totales.deudas, 'COP')}</div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* CUENTAS Y SALDOS DE CADA UNA */}
+                        {/* CUENTAS */}
                         {rubroActivo === 'cuentas' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                     <div>
-                                        <div className="text-xs text-neutral-400">Saldo Total Bruto en Cuentas</div>
-                                        <div className="text-2xl font-black text-white mt-0.5">{formatearMoneda(totales.saldoBruto)}</div>
+                                        <div className="text-xs text-neutral-400">Saldo Total Bruto en Cuentas COP</div>
+                                        <div className="text-2xl font-black text-white mt-0.5">{formatearMoneda(totales.saldoBrutoCOP, 'COP')}</div>
                                     </div>
                                     <div className="text-right">
                                         <div className="text-xs text-neutral-400">Disponible Libre Real</div>
-                                        <div className="text-lg font-black text-emerald-400">{formatearMoneda(totales.disponibleReal)}</div>
+                                        <div className="text-lg font-black text-emerald-400">{formatearMoneda(totales.disponibleRealCOP, 'COP')}</div>
                                     </div>
                                 </div>
 
@@ -752,10 +819,12 @@
                                         <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
                                             <div className="flex justify-between items-center">
                                                 <div>
-                                                    <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo}</span>
+                                                    <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo} ({c.moneda || 'COP'})</span>
                                                     <h3 className="font-bold text-white text-base">{c.nombre}</h3>
                                                 </div>
-                                                <div className="text-lg font-black text-emerald-400">{formatearMoneda(c.saldo)}</div>
+                                                <div className={`text-lg font-black ${c.moneda === 'USD' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                                    {formatearMoneda(c.saldo, c.moneda || 'COP')}
+                                                </div>
                                             </div>
                                             <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo }); setModalVisible('ajusteSaldo'); }} className="w-full text-center text-[11px] font-bold text-neutral-400 hover:text-white bg-black/60 hover:bg-black py-1.5 rounded-lg border border-neutral-800 transition">
                                                 ⚙️ Ajustar Saldo
@@ -766,13 +835,93 @@
                             </div>
                         )}
 
+                        {/* TRADES & INVERSIONES */}
+                        {rubroActivo === 'inversiones' && (
+                            <div className="space-y-4">
+                                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                    <div>
+                                        <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Capital de Trading / Binance</span>
+                                        <div className="text-3xl font-black text-amber-400 mt-1">
+                                            {formatearMoneda(totales.inversionesUSD, 'USD')}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 w-full md:w-auto">
+                                        <button onClick={() => { setFormTrade({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('trade'); }} className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl transition">
+                                            ⚡ + Registrar Trade
+                                        </button>
+                                        <button onClick={() => { setFormCierreInv({ tipo: 'diario', nombre: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
+                                            🔒 Cierre de Inversión
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* BITÁCORA DE TRADES */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Bitácora de Trades (USD)</h3>
+                                        {(!datos.trades || datos.trades.length === 0) ? (
+                                            <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin trades registrados.</div>
+                                        ) : (
+                                            datos.trades.map(t => (
+                                                <div key={t.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl flex justify-between items-center">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-xs font-black px-2 py-0.5 rounded-md ${t.resultado === 'gain' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                                                                {t.resultado === 'gain' ? '🟢 GAIN' : '🔴 LOSS'}
+                                                            </span>
+                                                            <span className="font-bold text-white text-sm">{t.par}</span>
+                                                        </div>
+                                                        <p className="text-[11px] text-neutral-400 mt-1">{t.estrategia || 'Sin nota'} • <span className="font-mono text-[10px]">{formatearFechaHora(t.fechaHora)}</span></p>
+                                                    </div>
+                                                    <div className={`text-base font-black ${t.resultado === 'gain' ? 'text-emerald-400' : 'text-red-500'}`}>
+                                                        {t.resultado === 'gain' ? '+' : '-'}{formatearMoneda(t.montoUSD, 'USD')}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    {/* HISTORIAL DE CIERRES DE INVERSIÓN */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Historial de Cierres de Inversión</h3>
+                                        {(!datos.cierresInversion || datos.cierresInversion.length === 0) ? (
+                                            <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin cierres de inversión.</div>
+                                        ) : (
+                                            datos.cierresInversion.map(c => (
+                                                <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-2">
+                                                    <div className="flex justify-between items-center border-b border-neutral-800 pb-1.5">
+                                                        <span className="font-bold text-amber-400 text-xs">{c.nombre} ({c.tipo.toUpperCase()})</span>
+                                                        <span className="text-[10px] font-mono text-neutral-500">{formatearFechaHora(c.fechaHora)}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-3 gap-1 text-xs">
+                                                        <div>
+                                                            <span className="text-[10px] text-neutral-400">Total USD:</span>
+                                                            <div className="font-bold text-white">{formatearMoneda(c.totalUSD, 'USD')}</div>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] text-neutral-400">Tasa TRM:</span>
+                                                            <div className="font-bold text-amber-400">${c.tasaTRM}</div>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] text-neutral-400">Valor COP:</span>
+                                                            <div className="font-bold text-emerald-400">{formatearMoneda(c.totalCOP, 'COP')}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* DESTINACIÓN DE FONDOS */}
                         {rubroActivo === 'destinaciones' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                     <div>
                                         <div className="text-xs text-neutral-400">Total Reservado en Destinaciones</div>
-                                        <div className="text-xl font-black text-white mt-0.5">{formatearMoneda(totales.totalDestinado)}</div>
+                                        <div className="text-xl font-black text-white mt-0.5">{formatearMoneda(totales.totalDestinado, 'COP')}</div>
                                     </div>
                                     <button onClick={() => { setFormDestino({ id: null, nombre: '', monto: '', descripcion: '' }); setModalVisible('destinacion'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-extrabold px-3.5 py-2 rounded-xl">
                                         + Destinar
@@ -798,7 +947,7 @@
 
                                                 <div className="flex justify-between items-end border-t border-neutral-800 pt-2">
                                                     <span className="text-xs text-neutral-400 font-semibold">Monto Reservado</span>
-                                                    <div className="text-xl font-black text-emerald-400">{formatearMoneda(d.monto)}</div>
+                                                    <div className="text-xl font-black text-emerald-400">{formatearMoneda(d.monto, 'COP')}</div>
                                                 </div>
 
                                                 <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-extrabold py-2.5 rounded-xl border border-emerald-500/30 transition">
@@ -849,11 +998,11 @@
                                                     <div className="flex justify-between items-end border-t border-neutral-800 pt-2">
                                                         <div>
                                                             <div className="text-[11px] text-neutral-400">Saldo Pendiente</div>
-                                                            <div className="text-xl font-black text-red-500">{formatearMoneda(pendiente)}</div>
+                                                            <div className="text-xl font-black text-red-500">{formatearMoneda(pendiente, 'COP')}</div>
                                                         </div>
                                                         <div className="text-right text-xs">
                                                             <div className="text-neutral-400">Original</div>
-                                                            <div className="font-bold text-neutral-200">{formatearMoneda(d.montoOriginal)}</div>
+                                                            <div className="font-bold text-neutral-200">{formatearMoneda(d.montoOriginal, 'COP')}</div>
                                                         </div>
                                                     </div>
 
@@ -906,11 +1055,11 @@
                                                     <div className="flex justify-between items-end border-t border-neutral-800 pt-2">
                                                         <div>
                                                             <div className="text-[11px] text-neutral-400">Saldo por Cobrar</div>
-                                                            <div className="text-xl font-black text-emerald-400">{formatearMoneda(pendiente)}</div>
+                                                            <div className="text-xl font-black text-emerald-400">{formatearMoneda(pendiente, 'COP')}</div>
                                                         </div>
                                                         <div className="text-right text-xs">
                                                             <div className="text-neutral-400">Original</div>
-                                                            <div className="font-bold text-neutral-200">{formatearMoneda(r.montoOriginal)}</div>
+                                                            <div className="font-bold text-neutral-200">{formatearMoneda(r.montoOriginal, 'COP')}</div>
                                                         </div>
                                                     </div>
 
@@ -975,7 +1124,7 @@
                                                     </div>
                                                     <div className="text-right">
                                                         <div className={`text-base font-black ${esTransferencia ? 'text-amber-400' : esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>
-                                                            {esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto)}
+                                                            {esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, c?.moneda || 'COP')}
                                                         </div>
                                                         <button onClick={() => eliminarMovimiento(m.id)} className="text-[10px] text-neutral-500 hover:text-red-500 underline mt-1">Eliminar</button>
                                                     </div>
@@ -987,56 +1136,87 @@
                             </div>
                         )}
 
-                        {/* CIERRE DE MES */}
-                        {rubroActivo === 'cierres' && (
-                            <div className="space-y-4">
-                                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
-                                    <h3 className="font-bold text-white text-base">Guardar Cierre de Mes</h3>
-                                    <p className="text-xs text-neutral-400">Guarda un reporte estático de tu patrimonio neto y disponibles actuales.</p>
-                                    <button onClick={() => setModalVisible('cierre')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold text-xs py-3 rounded-xl transition">
-                                        🔒 Realizar Cierre Mensual
-                                    </button>
-                                </div>
-
-                                <div className="space-y-3 pt-2">
-                                    <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Historial de Cierres</h4>
-                                    {(!datos.cierresMensuales || datos.cierresMensuales.length === 0) ? (
-                                        <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin cierres guardados.</div>
-                                    ) : (
-                                        datos.cierresMensuales.map(c => (
-                                            <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-2">
-                                                <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                                                    <h5 className="font-bold text-emerald-400 text-base">{c.nombreMes}</h5>
-                                                    <span className="text-[10px] font-mono text-neutral-500">{formatearFechaHora(c.fechaCierre)}</span>
-                                                </div>
-                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-1">
-                                                    <div>
-                                                        <span className="text-neutral-400">Patrimonio:</span>
-                                                        <div className="font-bold text-white">{formatearMoneda(c.resumen.patrimonioNeto)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-neutral-400">Disponible Real:</span>
-                                                        <div className="font-bold text-emerald-400">{formatearMoneda(c.resumen.disponibleReal)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-neutral-400">Destinado:</span>
-                                                        <div className="font-bold text-neutral-200">{formatearMoneda(c.resumen.totalDestinado)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-neutral-400">Deudas:</span>
-                                                        <div className="font-bold text-red-500">{formatearMoneda(c.resumen.deudas)}</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
                     </main>
 
                     {/* MODALES */}
+                    {modalVisible === 'trade' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarTrade} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⚡ Registrar Operación / Trade</h3>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Activo / Par</label>
+                                    <input type="text" required placeholder="Ej: BTC/USDT, GOLD, ETH" value={formTrade.par} onChange={e => setFormTrade({ ...formTrade, par: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Resultado</label>
+                                    <select value={formTrade.resultado} onChange={e => setFormTrade({ ...formTrade, resultado: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="gain" className="text-emerald-400">🟢 Gain (Ganancia en USD)</option>
+                                        <option value="loss" className="text-red-500">🔴 Loss (Pérdida en USD)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-amber-400 font-bold">Monto (USD)</label>
+                                    <input type="number" step="0.01" required placeholder="0.00" value={formTrade.montoUSD} onChange={e => setFormTrade({ ...formTrade, montoUSD: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-black text-xl rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Estrategia / Notas</label>
+                                    <input type="text" placeholder="Ej: Breakout, Scalping, Soporte 4H" value={formTrade.estrategia} onChange={e => setFormTrade({ ...formTrade, estrategia: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar Trade</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'cierreInversion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarCierreInversion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">🔒 Cierre de Inversión (TRM Dólar)</h3>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Tipo de Cierre</label>
+                                    <select value={formCierreInv.tipo} onChange={e => setFormCierreInv({ ...formCierreInv, tipo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="diario">🗓️ Cierre Diario</option>
+                                        <option value="mensual">📅 Cierre Mensual</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Nombre / Identificador</label>
+                                    <input type="text" placeholder="Ej: Cierre 15 Oct o Cierre Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-amber-400 font-bold">Tasa Dólar / TRM del Día (COP)</label>
+                                    <input type="number" required placeholder="3950" value={formCierreInv.tasaTRM} onChange={e => setFormCierreInv({ ...formCierreInv, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="bg-black/60 p-3 rounded-xl border border-neutral-800 text-xs space-y-1">
+                                    <div className="text-neutral-400">Capital Actual: <strong className="text-white">{formatearMoneda(totales.inversionesUSD, 'USD')}</strong></div>
+                                    <div className="text-neutral-400">Valor Estimado: <strong className="text-emerald-400">{formatearMoneda(totales.inversionesUSD * (parseFloat(formCierreInv.tasaTRM) || 0), 'COP')}</strong></div>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Cierre</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'cierre' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={realizarCierreMensual} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">🔒 Guardar Cierre de Mes (General)</h3>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Nombre del Mes</label>
+                                    <input type="text" required placeholder="Ej: Octubre 2026" value={nombreCierre} onChange={e => setNombreCierre(e.target.value)} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -1057,17 +1237,17 @@
                                     <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
                                         {listaCuentas.map(c => (
                                             <option key={c.id} value={c.id}>
-                                                {c.nombre} (Saldo actual: {formatearMoneda(c.saldo)})
+                                                {c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})
                                             </option>
                                         ))}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Concepto</label>
-                                    <input type="text" required placeholder="Ej: Pago de nómina, Compras, Mercado" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <input type="text" required placeholder="Ej: Pago de nómina, Compras" value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Monto (COP)</label>
+                                    <label className="text-xs text-neutral-400">Monto</label>
                                     <input type="number" required placeholder="0" value={formMov.monto} onChange={e => setFormMov({ ...formMov, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -1085,17 +1265,17 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta Origen (Sale)</label>
                                     <select value={formTransfer.cuentaOrigenId} onChange={e => setFormTransfer({ ...formTransfer, cuentaOrigenId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
-                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs text-emerald-400 font-bold">Cuenta Destino (Entra)</label>
                                     <select value={formTransfer.cuentaDestinoId} onChange={e => setFormTransfer({ ...formTransfer, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
-                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Monto a Transferir (COP)</label>
+                                    <label className="text-xs text-neutral-400">Monto a Transferir</label>
                                     <input type="number" required placeholder="0" value={formTransfer.monto} onChange={e => setFormTransfer({ ...formTransfer, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
                                 </div>
                                 <div>
@@ -1121,7 +1301,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Nuevo Saldo Real (COP)</label>
+                                    <label className="text-xs text-neutral-400">Nuevo Saldo Real</label>
                                     <input type="number" required placeholder="0" value={formAjusteSaldo.nuevoSaldo} onChange={e => setFormAjusteSaldo({ ...formAjusteSaldo, nuevoSaldo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -1167,7 +1347,7 @@
                                 <div>
                                     <label className="text-xs text-emerald-400 font-bold">Cuenta de donde sale el dinero real</label>
                                     <select value={formEjecutarDestino.cuentaId} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
-                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -1177,22 +1357,6 @@
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
                                     <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Pago</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {modalVisible === 'cierre' && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-                            <form onSubmit={realizarCierreMensual} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
-                                <h3 className="font-bold text-white text-lg">🔒 Guardar Cierre de Mes</h3>
-                                <div>
-                                    <label className="text-xs text-neutral-400">Nombre del Mes</label>
-                                    <input type="text" required placeholder="Ej: Octubre 2026" value={nombreCierre} onChange={e => setNombreCierre(e.target.value)} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
-                                </div>
-                                <div className="flex gap-2 pt-2">
-                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
-                                    <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar</button>
                                 </div>
                             </form>
                         </div>
@@ -1237,7 +1401,7 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Salida</label>
                                     <select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
-                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -1287,7 +1451,7 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Ingreso</label>
                                     <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
-                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
