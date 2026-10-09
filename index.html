@@ -19,9 +19,11 @@
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen">
+<body class="bg-black text-neutral-100 min-h-screen pb-20 md:pb-0">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -71,7 +73,6 @@
             const [estadoSincro, setEstadoSincro] = useState('espera');
             const [rubroActivo, setRubroActivo] = useState('inicio');
             const [modalVisible, setModalVisible] = useState(null);
-            const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
             const clienteSupabase = useRef(null);
 
@@ -157,7 +158,6 @@
                 return d.toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
             };
 
-            // Asegurar listado de cuentas siempre válido
             const listaCuentas = useMemo(() => {
                 return (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS;
             }, [datos]);
@@ -181,7 +181,6 @@
                 return { saldoBruto, totalDestinado, disponibleReal, inversiones, porCobrar, deudas, patrimonioNeto };
             }, [datos, listaCuentas]);
 
-            // Formulario de Movimiento
             const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() });
@@ -190,7 +189,6 @@
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [nombreCierre, setNombreCierre] = useState('');
 
-            // Guardar Movimiento clasificando por cuenta elegida
             const guardarMovimiento = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
@@ -340,13 +338,13 @@
             };
 
             const rubros = [
-                { id: 'inicio', etiqueta: '📊 Inicio' },
-                { id: 'cuentas', etiqueta: '💳 Cuentas' },
-                { id: 'destinaciones', etiqueta: '🎯 Destinación de Fondos' },
-                { id: 'deudas', etiqueta: '🔴 Mis Deudas' },
-                { id: 'porCobrar', etiqueta: '🟢 Me Deben' },
-                { id: 'movimientos', etiqueta: '📜 Movimientos' },
-                { id: 'cierres', etiqueta: '🔒 Cierre de Mes' }
+                { id: 'inicio', etiqueta: '📊 Inicio', corto: 'Inicio', icono: '📊' },
+                { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas', icono: '💳' },
+                { id: 'destinaciones', etiqueta: '🎯 Destinación de Fondos', corto: 'Destinos', icono: '🎯' },
+                { id: 'deudas', etiqueta: '🔴 Mis Deudas', corto: 'Deudas', icono: '🔴' },
+                { id: 'porCobrar', etiqueta: '🟢 Me Deben', corto: 'Me Deben', icono: '🟢' },
+                { id: 'movimientos', etiqueta: '📜 Movimientos', corto: 'Historial', icono: '📜' },
+                { id: 'cierres', etiqueta: '🔒 Cierre de Mes', corto: 'Cierres', icono: '🔒' }
             ];
 
             return (
@@ -356,10 +354,6 @@
                     <header className="bg-neutral-950 border-b border-neutral-900 sticky top-0 z-30">
                         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <button onClick={() => setMenuMovilAbierto(!menuMovilAbierto)} className="md:hidden p-2 text-neutral-300 hover:text-white bg-neutral-900 rounded-lg border border-neutral-800">
-                                    {menuMovilAbierto ? '✕' : '☰ Rubros'}
-                                </button>
-                                {/* 🚀 EMOJI DE COHETE SOLICITADO */}
                                 <div className="w-9 h-9 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-center text-xl">🚀</div>
                                 <div>
                                     <h1 className="font-bold text-white text-base leading-none">Mis Finanzas</h1>
@@ -377,7 +371,7 @@
                             </div>
                         </div>
 
-                        {/* RUBROS SUPERIORES DE NAVEGACIÓN */}
+                        {/* RUBROS SUPERIORES DE NAVEGACIÓN PARA PC */}
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
                             <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-hidden">
                                 {rubros.map(r => (
@@ -395,22 +389,21 @@
                         </div>
                     </header>
 
-                    {/* MENÚ MÓVIL DESPLEGABLE */}
-                    {menuMovilAbierto && (
-                        <div className="md:hidden bg-neutral-950 border-b border-neutral-900 p-3 grid grid-cols-2 gap-2 sticky top-[61px] z-20">
-                            {rubros.map(r => (
-                                <button
-                                    key={r.id}
-                                    onClick={() => { setRubroActivo(r.id); setMenuMovilAbierto(false); }}
-                                    className={`p-3 rounded-xl text-left text-xs font-bold border transition ${
-                                        rubroActivo === r.id ? 'bg-neutral-900 text-emerald-400 border-emerald-500/40' : 'bg-neutral-950 text-neutral-300 border-neutral-800'
-                                    }`}
-                                >
-                                    {r.etiqueta}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    {/* BARRA INFERIOR FIJA PARA CELULAR (SIN SCROLL / PERFECTAMENTE DISTRIBUIDA) */}
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950 border-t border-neutral-900 px-1 py-1.5 grid grid-cols-7 gap-0.5 z-40">
+                        {rubros.map(r => (
+                            <button
+                                key={r.id}
+                                onClick={() => setRubroActivo(r.id)}
+                                className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-lg transition ${
+                                    rubroActivo === r.id ? 'text-emerald-400 bg-neutral-900 font-extrabold' : 'text-neutral-400 hover:text-neutral-200 font-medium'
+                                }`}
+                            >
+                                <span className="text-xs leading-none">{r.icono}</span>
+                                <span className="text-[8px] leading-tight mt-1 truncate w-full text-center">{r.corto}</span>
+                            </button>
+                        ))}
+                    </nav>
 
                     {/* CONTENIDO PRINCIPAL */}
                     <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
@@ -624,7 +617,7 @@
                             </div>
                         )}
 
-                        {/* MOVIMIENTOS CON ETIQUETA DE CUENTA DE ORIGEN / DESTINO */}
+                        {/* MOVIMIENTOS */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-2">
                                 {(!datos.movimientos || datos.movimientos.length === 0) ? (
@@ -706,7 +699,7 @@
 
                     </main>
 
-                    {/* MODAL REGISTRAR MOVIMIENTO CON CLASIFICACIÓN DE CUENTA (EFECTIVO, NEQUI, BANCOLOMBIA, DAVIPLATA...) */}
+                    {/* MODALES */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
