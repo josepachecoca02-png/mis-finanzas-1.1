@@ -64,7 +64,7 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v19');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v20');
                     if (guardado) {
                         const parsed = JSON.parse(guardado);
                         if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
@@ -81,7 +81,7 @@
 
             // Filtros de Movimientos
             const [busquedaMov, setBusquedaMov] = useState('');
-            const [filtroFechaMov, setFiltroFechaMov] = useState('todos'); // todos, mes_actual, mes_anterior, ano_actual
+            const [filtroFechaMov, setFiltroFechaMov] = useState('todos');
 
             const clienteSupabase = useRef(null);
 
@@ -106,7 +106,7 @@
 
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v19', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v20', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -200,6 +200,7 @@
             const [formTransfer, setFormTransfer] = useState({ cuentaOrigenId: 'c3', cuentaDestinoId: 'c2', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
             const [formAjusteSaldo, setFormAjusteSaldo] = useState({ cuentaId: 'c1', nuevoSaldo: '' });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
+            const [formEjecutarDestino, setFormEjecutarDestino] = useState({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() });
             const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formPorCobrar, setFormPorCobrar] = useState({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaAcordada: '', fechaHora: obtenerFechaHoraActual() });
@@ -304,8 +305,50 @@
                 mostrarNotificacion("✅ Destinación guardada");
             };
 
+            // ⚡ OPCIÓN 2: EJECUTAR Y PAGAR UN GASTO DESTINADO (LIBERA Y REGISTRA EGRESO)
+            const ejecutarPagoDestinacion = (e) => {
+                e.preventDefault();
+                const montoNum = parseFloat(formEjecutarDestino.monto);
+                if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Ingresa un monto válido", 'error');
+
+                const destinacion = (datos.destinaciones || []).find(d => d.id === formEjecutarDestino.destinacionId);
+                if (!destinacion) return;
+
+                // 1. Descontar saldo de la cuenta seleccionada
+                const cuentasAct = listaCuentas.map(c => c.id === formEjecutarDestino.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
+
+                // 2. Registrar el egreso en movimientos para mantener trazabilidad
+                const nuevoMov = {
+                    id: 'm_' + Date.now(),
+                    fechaHora: formEjecutarDestino.fechaHora || obtenerFechaHoraActual(),
+                    concepto: `🎯 Fondo Pagado: ${destinacion.nombre}`,
+                    monto: montoNum,
+                    tipo: 'egreso',
+                    cuentaId: formEjecutarDestino.cuentaId,
+                    categoria: 'Gasto Destinado'
+                };
+
+                // 3. Reducir o eliminar el fondo reservado para NO descontar doble
+                let destinacionesAct = [];
+                if (montoNum >= destinacion.monto) {
+                    destinacionesAct = (datos.destinaciones || []).filter(d => d.id !== formEjecutarDestino.destinacionId);
+                } else {
+                    destinacionesAct = (datos.destinaciones || []).map(d => d.id === formEjecutarDestino.destinacionId ? { ...d, monto: d.monto - montoNum } : d);
+                }
+
+                actualizarYGuardar({
+                    ...datos,
+                    cuentas: cuentasAct,
+                    destinaciones: destinacionesAct,
+                    movimientos: [nuevoMov, ...(datos.movimientos || [])]
+                });
+
+                setModalVisible(null);
+                mostrarNotificacion("⚡ Gasto ejecutado y trazabilidad registrada");
+            };
+
             const eliminarDestinacion = (id) => {
-                if (!confirm("¿Eliminar esta destinación?")) return;
+                if (!confirm("¿Eliminar esta destinación sin ejecutar el gasto?")) return;
                 actualizarYGuardar({ ...datos, destinaciones: (datos.destinaciones || []).filter(d => d.id !== id) });
                 mostrarNotificacion("🗑️ Destinación eliminada");
             };
@@ -429,7 +472,6 @@
             const movimientosFiltrados = useMemo(() => {
                 let lista = datos.movimientos || [];
 
-                // Búsqueda por texto
                 if (busquedaMov.trim()) {
                     const q = busquedaMov.toLowerCase();
                     lista = lista.filter(m => {
@@ -438,7 +480,6 @@
                     });
                 }
 
-                // Filtro por fecha
                 const ahora = new Date();
                 if (filtroFechaMov === 'mes_actual') {
                     lista = lista.filter(m => {
@@ -631,7 +672,7 @@
                             </div>
                         )}
 
-                        {/* DESTINACIÓN DE FONDOS */}
+                        {/* DESTINACIÓN DE FONDOS CON OPCIÓN 2 (EJECUCIÓN DIRECTA Y LIBERACIÓN) */}
                         {rubroActivo === 'destinaciones' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
@@ -644,23 +685,31 @@
                                     </button>
                                 </div>
 
-                                <div className="space-y-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {(!datos.destinaciones || datos.destinaciones.length === 0) ? (
-                                        <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin destinaciones configuradas.</div>
+                                        <div className="col-span-full text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin destinaciones configuradas.</div>
                                     ) : (
                                         datos.destinaciones.map(d => (
-                                            <div key={d.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
-                                                <div>
-                                                    <h4 className="font-bold text-white text-base">{d.nombre}</h4>
-                                                    <p className="text-xs text-neutral-400">{d.descripcion || 'Sin nota'}</p>
-                                                </div>
-                                                <div className="text-right space-y-1">
-                                                    <div className="text-lg font-black text-emerald-400">{formatearMoneda(d.monto)}</div>
+                                            <div key={d.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h4 className="font-bold text-white text-base">{d.nombre}</h4>
+                                                        <p className="text-xs text-neutral-400">{d.descripcion || 'Sin nota'}</p>
+                                                    </div>
                                                     <div className="space-x-2">
                                                         <button onClick={() => { setFormDestino({ id: d.id, nombre: d.nombre, monto: d.monto, descripcion: d.descripcion || '' }); setModalVisible('destinacion'); }} className="text-neutral-400 text-xs font-bold hover:underline">Editar</button>
                                                         <button onClick={() => eliminarDestinacion(d.id)} className="text-red-500 text-xs font-bold hover:underline">Eliminar</button>
                                                     </div>
                                                 </div>
+
+                                                <div className="flex justify-between items-end border-t border-neutral-800 pt-2">
+                                                    <span className="text-xs text-neutral-400 font-semibold">Monto Reservado</span>
+                                                    <div className="text-xl font-black text-emerald-400">{formatearMoneda(d.monto)}</div>
+                                                </div>
+
+                                                <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-extrabold py-2.5 rounded-xl border border-emerald-500/30 transition">
+                                                    ⚡ Pagar / Ejecutar Gasto (Descuenta y Libera)
+                                                </button>
                                             </div>
                                         ))
                                     )}
@@ -910,7 +959,7 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-emerald-400 font-bold">¿A/De qué cuenta entra o sale el dinero?</label>
+                                    <label className="text-xs text-emerald-400 font-bold">Cuenta</label>
                                     <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
                                         {listaCuentas.map(c => (
                                             <option key={c.id} value={c.id}>
@@ -991,16 +1040,17 @@
                         </div>
                     )}
 
+                    {/* MODAL NUEVA DESTINACIÓN */}
                     {modalVisible === 'destinacion' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">{formDestino.id ? 'Editar Destinación' : 'Nueva Destinación'}</h3>
                                 <div>
                                     <label className="text-xs text-neutral-400">Nombre del Fondo</label>
-                                    <input type="text" required placeholder="Ej: Arriendo" value={formDestino.nombre} onChange={e => setFormDestino({ ...formDestino, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <input type="text" required placeholder="Ej: Arriendo, Mercado" value={formDestino.nombre} onChange={e => setFormDestino({ ...formDestino, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Monto Reservado (COP)</label>
+                                    <label className="text-xs text-neutral-400">Monto a Reservar (COP)</label>
                                     <input type="number" required placeholder="0" value={formDestino.monto} onChange={e => setFormDestino({ ...formDestino, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
                                 </div>
                                 <div>
@@ -1010,6 +1060,33 @@
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
                                     <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL EJECUTAR GASTO DESTINADO */}
+                    {modalVisible === 'ejecutarDestinacion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={ejecutarPagoDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⚡ Pagar / Ejecutar Gasto</h3>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Monto a Pagar (COP)</label>
+                                    <input type="number" required placeholder="0" value={formEjecutarDestino.monto} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Cuenta de donde sale el dinero real</label>
+                                    <select value={formEjecutarDestino.cuentaId} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Fecha y Hora</label>
+                                    <input type="datetime-local" required value={formEjecutarDestino.fechaHora} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, fechaHora: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Pago</button>
                                 </div>
                             </form>
                         </div>
