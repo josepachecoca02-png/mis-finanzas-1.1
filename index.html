@@ -58,7 +58,7 @@
             { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
             { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, moneda: "COP", activa: true },
             { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, moneda: "COP", activa: true },
-            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 500, moneda: "USD", activa: true }
+            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 500, saldoCOP: 0, moneda: "USD", activa: true }
         ];
 
         const ESTADO_INICIAL = {
@@ -243,7 +243,14 @@
                 const porCobrarLista = datos?.porCobrar || [];
                 const deudasLista = datos?.deudas || [];
 
-                const saldoBrutoCOP = cuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
+                const saldoBrutoCOP = cuentas.reduce((acc, c) => {
+                    if (c.activa === false) return acc;
+                    if (c.moneda === 'USD' || c.tipo === 'Inversión') {
+                        return acc + (c.saldoCOP || 0);
+                    }
+                    return acc + c.saldo;
+                }, 0);
+
                 const inversionesUSD = cuentas.filter(c => c.moneda === 'USD' || c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa !== false ? c.saldo : 0), 0);
                 
                 const totalDestinado = destinaciones.reduce((acc, d) => acc + (d.monto || 0), 0);
@@ -271,7 +278,8 @@
 
             // Formularios de Trading e Inversión
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
-            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
+            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', gananciaUSD: '', tasaTRM: '3950' });
+            const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
 
             // Operaciones Trades
             const guardarTrade = (e) => {
@@ -355,24 +363,81 @@
             const guardarCierreInversion = (e) => {
                 e.preventDefault();
                 const tasaNum = parseFloat(formCierreInv.tasaTRM);
+                const gananciaNumUSD = parseFloat(formCierreInv.gananciaUSD) || 0;
                 if (isNaN(tasaNum) || tasaNum <= 0) return mostrarNotificacion("Ingresa una tasa TRM válida", 'error');
 
-                const totalUSD = totales.inversionesUSD;
-                const totalCOP = totalUSD * tasaNum;
+                const gananciaCOP = gananciaNumUSD * tasaNum;
+
+                const cuentasAct = listaCuentas.map(c => {
+                    if (c.tipo === 'Inversión' || c.moneda === 'USD') {
+                        return { ...c, saldoCOP: (c.saldoCOP || 0) + gananciaCOP };
+                    }
+                    return c;
+                });
 
                 const nuevoCierre = {
                     id: 'cierre_inv_' + Date.now(),
                     tipo: formCierreInv.tipo,
                     nombre: formCierreInv.nombre.trim() || (formCierreInv.tipo === 'semanal' ? 'Cierre Semanal' : 'Cierre Mensual'),
                     fechaHora: obtenerFechaHoraActual(),
-                    totalUSD: totalUSD,
+                    totalUSD: totales.inversionesUSD,
+                    gananciaUSD: gananciaNumUSD,
                     tasaTRM: tasaNum,
-                    totalCOP: totalCOP
+                    totalCOP: gananciaCOP
                 };
 
-                actualizarYGuardar({ ...datos, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])] });
+                const nuevoMov = gananciaCOP > 0 ? {
+                    id: 'm_cierre_' + Date.now(),
+                    fechaHora: obtenerFechaHoraActual(),
+                    concepto: `📈 Utilidad Liquidada ${nuevoCierre.nombre} (${gananciaNumUSD} USD)`,
+                    monto: gananciaCOP,
+                    tipo: 'ingreso',
+                    cuentaId: listaCuentas.find(c => c.tipo === 'Inversión' || c.moneda === 'USD')?.id || 'c5',
+                    categoria: 'Trading Gain'
+                } : null;
+
+                const nuevosMovs = nuevoMov ? [nuevoMov, ...(datos.movimientos || [])] : (datos.movimientos || []);
+
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])], movimientos: nuevosMovs });
                 setModalVisible(null);
-                mostrarNotificacion("🔒 Cierre de inversión registrado con éxito");
+                mostrarNotificacion("🔒 Cierre guardado: Utilidad añadida al Disponible Real Libre en COP");
+            };
+
+            const transferirUtilidadBinance = (e) => {
+                e.preventDefault();
+                const montoNum = parseFloat(formTransferUtilidad.montoCOP);
+                if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Ingresa un monto válido en COP", 'error');
+
+                const cBinance = listaCuentas.find(c => c.tipo === 'Inversión' || c.moneda === 'USD');
+                if (!cBinance || (cBinance.saldoCOP || 0) < montoNum) {
+                    return mostrarNotificacion("No hay suficiente saldo COP líquido disponible en Binance", 'error');
+                }
+
+                const cDestino = listaCuentas.find(c => c.id === formTransferUtilidad.cuentaDestinoId);
+
+                const cuentasAct = listaCuentas.map(c => {
+                    if (c.tipo === 'Inversión' || c.moneda === 'USD') {
+                        return { ...c, saldoCOP: (c.saldoCOP || 0) - montoNum };
+                    }
+                    if (c.id === formTransferUtilidad.cuentaDestinoId) {
+                        return { ...c, saldo: c.saldo + montoNum };
+                    }
+                    return c;
+                });
+
+                const nuevoMov = {
+                    id: 'm_tr_ut_' + Date.now(),
+                    fechaHora: formTransferUtilidad.fechaHora || obtenerFechaHoraActual(),
+                    concepto: `⇄ Transferencia Utilidad Trading ➔ ${cDestino?.nombre}`,
+                    monto: montoNum,
+                    tipo: 'transferencia',
+                    cuentaId: cBinance.id,
+                    categoria: 'Retiro Utilidad'
+                };
+
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null);
+                mostrarNotificacion(`✅ ${formatearMoneda(montoNum, 'COP')} transferidos a ${cDestino?.nombre}`);
             };
 
             const guardarMovimiento = (e) => {
@@ -872,7 +937,7 @@
                                             <div className="text-4xl md:text-6xl font-black text-white mt-1">
                                                 {formatearMoneda(totales.disponibleRealCOP, 'COP')}
                                             </div>
-                                            <p className="text-xs text-neutral-400 mt-2">Saldo total disponible para uso libre (descontando destinaciones reservadas).</p>
+                                            <p className="text-xs text-neutral-400 mt-2">Saldo total disponible para uso libre (incluye utilidades liquidadas en COP).</p>
                                         </div>
                                     </div>
 
@@ -936,22 +1001,62 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                    {listaCuentas.map(c => (
-                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo} ({c.moneda || 'COP'})</span>
-                                                    <h3 className="font-bold text-white text-base">{c.nombre}</h3>
+                                    {listaCuentas.map(c => {
+                                        const esBinance = c.tipo === 'Inversión' || c.moneda === 'USD';
+                                        
+                                        if (esBinance) {
+                                            return (
+                                                <div key={c.id} className="bg-neutral-900 border border-amber-500/30 p-4 rounded-2xl space-y-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-amber-400 uppercase">INVERSIÓN (USD + COP)</span>
+                                                            <h3 className="font-bold text-white text-base">{c.nombre}</h3>
+                                                        </div>
+                                                        <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo }); setModalVisible('ajusteSaldo'); }} className="text-[10px] font-bold text-amber-400 hover:underline">
+                                                            ⚙️ Ajustar Base
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="space-y-1.5 bg-black/50 p-2.5 rounded-xl border border-neutral-800">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-xs text-neutral-400">Capital Operativo USD:</span>
+                                                            <span className="text-base font-black text-amber-400">{formatearMoneda(c.saldo, 'USD')}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center border-t border-neutral-800/80 pt-1">
+                                                            <span className="text-xs text-neutral-400">Utilidad Liquidada COP:</span>
+                                                            <span className="text-sm font-black text-emerald-400">{formatearMoneda(c.saldoCOP || 0, 'COP')}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {(c.saldoCOP || 0) > 0 && (
+                                                        <button 
+                                                            onClick={() => { setFormTransferUtilidad({ cuentaDestinoId: 'c2', montoCOP: c.saldoCOP || '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferirUtilidad'); }} 
+                                                            className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition flex items-center justify-center gap-1"
+                                                        >
+                                                            ⇄ Transferir Utilidad a Banco / Nequi
+                                                        </button>
+                                                    )}
                                                 </div>
-                                                <div className={`text-lg font-black ${c.moneda === 'USD' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                                                    {formatearMoneda(c.saldo, c.moneda || 'COP')}
+                                            );
+                                        }
+
+                                        return (
+                                            <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo} ({c.moneda || 'COP'})</span>
+                                                        <h3 className="font-bold text-white text-base">{c.nombre}</h3>
+                                                    </div>
+                                                    <div className="text-lg font-black text-emerald-400">
+                                                        {formatearMoneda(c.saldo, c.moneda || 'COP')}
+                                                    </div>
                                                 </div>
+                                                <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo }); setModalVisible('ajusteSaldo'); }} className="w-full text-center text-[11px] font-bold text-neutral-400 hover:text-white bg-black/60 hover:bg-black py-1.5 rounded-lg border border-neutral-800 transition">
+                                                    ⚙️ Ajustar Saldo
+                                                </button>
                                             </div>
-                                            <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo }); setModalVisible('ajusteSaldo'); }} className="w-full text-center text-[11px] font-bold text-neutral-400 hover:text-white bg-black/60 hover:bg-black py-1.5 rounded-lg border border-neutral-800 transition">
-                                                ⚙️ Ajustar Saldo / Inyección
-                                            </button>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
@@ -975,7 +1080,7 @@
                                         <button onClick={() => { setFormTrade({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('trade'); }} className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl transition">
                                             ⚡ + Registrar Trade
                                         </button>
-                                        <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
+                                        <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', gananciaUSD: '', tasaTRM: '3950' }); setModalVisible('cierreInversion'); }} className="flex-1 md:flex-none bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl transition">
                                             🔒 Cierre Semanal / Mensual
                                         </button>
                                     </div>
@@ -1027,16 +1132,16 @@
                                                     </div>
                                                     <div className="grid grid-cols-3 gap-1 text-xs">
                                                         <div>
-                                                            <span className="text-[10px] text-neutral-400">Total USD:</span>
-                                                            <div className="font-bold text-white">{formatearMoneda(c.totalUSD, 'USD')}</div>
+                                                            <span className="text-[10px] text-neutral-400">Ganancia USD:</span>
+                                                            <div className="font-bold text-emerald-400">+{formatearMoneda(c.gananciaUSD || 0, 'USD')}</div>
                                                         </div>
                                                         <div>
                                                             <span className="text-[10px] text-neutral-400">Tasa TRM:</span>
                                                             <div className="font-bold text-amber-400">${c.tasaTRM}</div>
                                                         </div>
                                                         <div>
-                                                            <span className="text-[10px] text-neutral-400">Valor COP:</span>
-                                                            <div className="font-bold text-emerald-400">{formatearMoneda(c.totalCOP, 'COP')}</div>
+                                                            <span className="text-[10px] text-neutral-400">Utilidad COP:</span>
+                                                            <div className="font-bold text-emerald-400">+{formatearMoneda(c.totalCOP, 'COP')}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1256,7 +1361,7 @@
                                                     </div>
                                                     <div className="text-right">
                                                         <div className={`text-base font-black ${esTransferencia ? 'text-amber-400' : esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>
-                                                            {esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, c?.moneda || 'COP')}
+                                                            {esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, 'COP')}
                                                         </div>
                                                         <button onClick={() => eliminarMovimiento(m.id)} className="text-[10px] text-neutral-500 hover:text-red-500 underline mt-1">Eliminar</button>
                                                     </div>
@@ -1309,7 +1414,7 @@
                     {modalVisible === 'cierreInversion' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarCierreInversion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
-                                <h3 className="font-bold text-white text-lg">🔒 Cierre de Inversión (TRM Dólar)</h3>
+                                <h3 className="font-bold text-white text-lg">🔒 Cierre de Inversión y Liquidación</h3>
                                 <div>
                                     <label className="text-xs text-neutral-400">Tipo de Cierre</label>
                                     <select value={formCierreInv.tipo} onChange={e => setFormCierreInv({ ...formCierreInv, tipo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
@@ -1318,20 +1423,51 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400">Nombre / Identificador</label>
-                                    <input type="text" placeholder="Ej: Cierre Semana 1 Oct u Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                    <label className="text-xs text-neutral-400">Nombre del Período</label>
+                                    <input type="text" placeholder="Ej: Cierre Semana 1 Octubre" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Ganancia Neta del Período (USD)</label>
+                                    <input type="number" step="0.01" required placeholder="Ej: 50.00" value={formCierreInv.gananciaUSD} onChange={e => setFormCierreInv({ ...formCierreInv, gananciaUSD: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
                                 </div>
                                 <div>
                                     <label className="text-xs text-amber-400 font-bold">Tasa Dólar / TRM del Día (COP)</label>
                                     <input type="number" required placeholder="3950" value={formCierreInv.tasaTRM} onChange={e => setFormCierreInv({ ...formCierreInv, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
                                 </div>
                                 <div className="bg-black/60 p-3 rounded-xl border border-neutral-800 text-xs space-y-1">
-                                    <div className="text-neutral-400">Capital Actual: <strong className="text-white">{formatearMoneda(totales.inversionesUSD, 'USD')}</strong></div>
-                                    <div className="text-neutral-400">Valor Estimado COP: <strong className="text-emerald-400">{formatearMoneda(totales.inversionesUSD * (parseFloat(formCierreInv.tasaTRM) || 0), 'COP')}</strong></div>
+                                    <div className="text-neutral-400">Utilidad que pasará a Disponible COP: <strong className="text-emerald-400">{formatearMoneda((parseFloat(formCierreInv.gananciaUSD) || 0) * (parseFloat(formCierreInv.tasaTRM) || 0), 'COP')}</strong></div>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
-                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Cierre</button>
+                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Liquidar Cierre</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'transferirUtilidad' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={transferirUtilidadBinance} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⇄ Transferir Utilidad Liquidada</h3>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Monto a Mover (COP)</label>
+                                    <input type="number" required placeholder="0" value={formTransferUtilidad.montoCOP} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, montoCOP: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Cuenta Destino (Bancolombia, Nequi, etc.)</label>
+                                    <select value={formTransferUtilidad.cuentaDestinoId} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        {listaCuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').map(c => (
+                                            <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, 'COP')})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Fecha y Hora</label>
+                                    <input type="datetime-local" required value={formTransferUtilidad.fechaHora} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, fechaHora: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Envío</button>
                                 </div>
                             </form>
                         </div>
