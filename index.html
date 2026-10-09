@@ -57,7 +57,7 @@
         function Aplicacion() {
             const [datos, setDatos] = useState(() => {
                 try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v14');
+                    const guardado = localStorage.getItem('mis_finanzas_jose_v15');
                     return guardado ? JSON.parse(guardado) : ESTADO_INICIAL;
                 } catch(e) { return ESTADO_INICIAL; }
             });
@@ -69,22 +69,25 @@
 
             const clienteSupabase = useRef(null);
 
-            // Inicializar Supabase
+            // Cargar e Inicializar cliente Supabase de forma segura
             useEffect(() => {
-                if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-                    try {
-                        clienteSupabase.current = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                try {
+                    if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
+                        clienteSupabase.current = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                         cargarDesdeSupabase();
-                    } catch(e) {
+                    } else {
                         setEstadoSincro('error');
                     }
+                } catch(e) {
+                    console.error("Error al conectar Supabase:", e);
+                    setEstadoSincro('error');
                 }
             }, []);
 
-            // Guardar localmente
+            // Guardar en localStorage
             useEffect(() => {
                 try {
-                    localStorage.setItem('mis_finanzas_jose_v14', JSON.stringify(datos));
+                    localStorage.setItem('mis_finanzas_jose_v15', JSON.stringify(datos));
                 } catch(e) {}
             }, [datos]);
 
@@ -99,17 +102,20 @@
                         .single();
 
                     if (error && error.code !== 'PGRST116') {
+                        console.error("Error Supabase:", error);
                         setEstadoSincro('error');
                         return;
                     }
 
-                    if (respuesta && respuesta.content && Object.keys(respuesta.content).length > 0) {
+                    if (respuesta && respuesta.content && typeof respuesta.content === 'object' && Object.keys(respuesta.content).length > 0) {
                         setDatos(respuesta.content);
                         setEstadoSincro('exito');
                     } else {
+                        // Si está vacío, guardar el estado inicial en la BD
                         guardarEnSupabase(datos);
                     }
                 } catch(err) {
+                    console.error("Excepción al cargar:", err);
                     setEstadoSincro('error');
                 }
             };
@@ -125,9 +131,11 @@
                     if (!error) {
                         setEstadoSincro('exito');
                     } else {
+                        console.error("Error al upsert:", error);
                         setEstadoSincro('error');
                     }
                 } catch(err) {
+                    console.error("Excepción al guardar:", err);
                     setEstadoSincro('error');
                 }
             };
@@ -147,14 +155,19 @@
 
             // Totales con deducción automática de destinaciones
             const totales = useMemo(() => {
-                const saldoBruto = (datos.cuentas || []).filter(c => c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
-                const inversiones = (datos.cuentas || []).filter(c => c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
-                const totalDestinado = (datos.destinaciones || []).reduce((acc, d) => acc + (d.monto || 0), 0);
+                const cuentas = datos?.cuentas || [];
+                const destinaciones = datos?.destinaciones || [];
+                const porCobrarLista = datos?.porCobrar || [];
+                const deudasLista = datos?.deudas || [];
+
+                const saldoBruto = cuentas.filter(c => c.tipo !== 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
+                const inversiones = cuentas.filter(c => c.tipo === 'Inversión').reduce((acc, c) => acc + (c.activa ? c.saldo : 0), 0);
+                const totalDestinado = destinaciones.reduce((acc, d) => acc + (d.monto || 0), 0);
                 
                 const disponibleReal = Math.max(0, saldoBruto - totalDestinado);
 
-                const porCobrar = (datos.porCobrar || []).reduce((acc, r) => acc + Math.max(0, r.montoOriginal - ((r.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
-                const deudas = (datos.deudas || []).reduce((acc, d) => acc + Math.max(0, d.montoOriginal - ((d.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
+                const porCobrar = porCobrarLista.reduce((acc, r) => acc + Math.max(0, r.montoOriginal - ((r.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
+                const deudas = deudasLista.reduce((acc, d) => acc + Math.max(0, d.montoOriginal - ((d.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
                 const patrimonioNeto = disponibleReal + inversiones + totalDestinado + porCobrar - deudas;
 
                 return { saldoBruto, totalDestinado, disponibleReal, inversiones, porCobrar, deudas, patrimonioNeto };
@@ -176,11 +189,11 @@
                 const montoNum = parseFloat(formMov.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Ingresa un monto válido.");
 
-                let cuentasAct = [...datos.cuentas];
-                let movsAct = [...datos.movimientos];
+                let cuentasAct = [...(datos.cuentas || [])];
+                let movsAct = [...(datos.movimientos || [])];
 
                 if (formMov.id) {
-                    const movAnt = datos.movimientos.find(m => m.id === formMov.id);
+                    const movAnt = movsAct.find(m => m.id === formMov.id);
                     cuentasAct = cuentasAct.map(c => {
                         let saldoTemp = c.saldo;
                         if (movAnt && c.id === movAnt.cuentaId) {
@@ -204,17 +217,18 @@
 
             const eliminarMovimiento = (id) => {
                 if (!confirm("¿Eliminar este movimiento?")) return;
-                const mov = datos.movimientos.find(m => m.id === id);
+                const movs = datos.movimientos || [];
+                const mov = movs.find(m => m.id === id);
                 if (!mov) return;
-                const cuentasAct = datos.cuentas.map(c => c.id === mov.cuentaId ? { ...c, saldo: mov.tipo === 'ingreso' ? c.saldo - mov.monto : c.saldo + mov.monto } : c);
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: datos.movimientos.filter(m => m.id !== id) });
+                const cuentasAct = (datos.cuentas || []).map(c => c.id === mov.cuentaId ? { ...c, saldo: mov.tipo === 'ingreso' ? c.saldo - mov.monto : c.saldo + mov.monto } : c);
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: movs.filter(m => m.id !== id) });
             };
 
             const guardarBolsillo = (e) => {
                 e.preventDefault();
                 const meta = parseFloat(formBolsillo.meta) || 0;
                 const actual = parseFloat(formBolsillo.actual) || 0;
-                let lista = [...datos.bolsillos];
+                let lista = [...(datos.bolsillos || [])];
                 if (formBolsillo.id) {
                     lista = lista.map(b => b.id === formBolsillo.id ? { ...b, nombre: formBolsillo.nombre, meta, actual, cuentaId: formBolsillo.cuentaId } : b);
                 } else {
@@ -226,7 +240,7 @@
 
             const eliminarBolsillo = (id) => {
                 if (!confirm("¿Eliminar este bolsillo?")) return;
-                actualizarYGuardar({ ...datos, bolsillos: datos.bolsillos.filter(b => b.id !== id) });
+                actualizarYGuardar({ ...datos, bolsillos: (datos.bolsillos || []).filter(b => b.id !== id) });
             };
 
             const guardarDestinacion = (e) => {
@@ -250,7 +264,7 @@
             const guardarDeuda = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formDeuda.montoOriginal) || 0;
-                let lista = [...datos.deudas];
+                let lista = [...(datos.deudas || [])];
                 if (formDeuda.id) {
                     lista = lista.map(d => d.id === formDeuda.id ? { ...d, entidad: formDeuda.entidad, concepto: formDeuda.concepto, montoOriginal: orig, fechaVencimiento: formDeuda.fechaVencimiento, fechaHora: formDeuda.fechaHora } : d);
                 } else {
@@ -262,7 +276,7 @@
 
             const eliminarDeuda = (id) => {
                 if (!confirm("¿Eliminar esta deuda?")) return;
-                actualizarYGuardar({ ...datos, deudas: datos.deudas.filter(d => d.id !== id) });
+                actualizarYGuardar({ ...datos, deudas: (datos.deudas || []).filter(d => d.id !== id) });
             };
 
             const abonarDeuda = (e) => {
@@ -270,23 +284,23 @@
                 const montoNum = parseFloat(formAbonoDeuda.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Monto inválido");
 
-                const cuentasAct = datos.cuentas.map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
-                const deudasAct = datos.deudas.map(d => {
+                const cuentasAct = (datos.cuentas || []).map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - montoNum } : c);
+                const deudasAct = (datos.deudas || []).map(d => {
                     if (d.id === formAbonoDeuda.deudaId) {
                         return { ...d, abonos: [...(d.abonos || []), { id: 'ab_' + Date.now(), monto: montoNum, fechaHora: formAbonoDeuda.fechaHora || obtenerFechaHoraActual(), cuentaId: formAbonoDeuda.cuentaId }] };
                     }
                     return d;
                 });
-                const nuevoMov = { id: 'm_' + Date.now(), fechaHora: formAbonoDeuda.fechaHora || obtenerFechaHoraActual(), concepto: `Abono Deuda: ${datos.deudas.find(d => d.id === formAbonoDeuda.deudaId)?.entidad || ''}`, monto: montoNum, tipo: 'egreso', cuentaId: formAbonoDeuda.cuentaId, categoria: 'Pago de Deuda' };
+                const nuevoMov = { id: 'm_' + Date.now(), fechaHora: formAbonoDeuda.fechaHora || obtenerFechaHoraActual(), concepto: `Abono Deuda: ${(datos.deudas || []).find(d => d.id === formAbonoDeuda.deudaId)?.entidad || ''}`, monto: montoNum, tipo: 'egreso', cuentaId: formAbonoDeuda.cuentaId, categoria: 'Pago de Deuda' };
 
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, deudas: deudasAct, movimientos: [nuevoMov, ...datos.movimientos] });
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, deudas: deudasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setModalVisible(null);
             };
 
             const guardarPorCobrar = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formPorCobrar.montoOriginal) || 0;
-                let lista = [...datos.porCobrar];
+                let lista = [...(datos.porCobrar || [])];
                 if (formPorCobrar.id) {
                     lista = lista.map(r => r.id === formPorCobrar.id ? { ...r, deudor: formPorCobrar.deudor, concepto: formPorCobrar.concepto, montoOriginal: orig, fechaAcordada: formPorCobrar.fechaAcordada, fechaHora: formPorCobrar.fechaHora } : r);
                 } else {
@@ -298,7 +312,7 @@
 
             const eliminarPorCobrar = (id) => {
                 if (!confirm("¿Eliminar este préstamo?")) return;
-                actualizarYGuardar({ ...datos, porCobrar: datos.porCobrar.filter(r => r.id !== id) });
+                actualizarYGuardar({ ...datos, porCobrar: (datos.porCobrar || []).filter(r => r.id !== id) });
             };
 
             const recibirAbonoCobro = (e) => {
@@ -306,16 +320,16 @@
                 const montoNum = parseFloat(formAbonoCobro.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return alert("Monto inválido");
 
-                const cuentasAct = datos.cuentas.map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + montoNum } : c);
-                const cobrosAct = datos.porCobrar.map(r => {
+                const cuentasAct = (datos.cuentas || []).map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + montoNum } : c);
+                const cobrosAct = (datos.porCobrar || []).map(r => {
                     if (r.id === formAbonoCobro.cobroId) {
                         return { ...r, abonos: [...(r.abonos || []), { id: 'rab_' + Date.now(), monto: montoNum, fechaHora: formAbonoCobro.fechaHora || obtenerFechaHoraActual(), cuentaId: formAbonoCobro.cuentaId }] };
                     }
                     return r;
                 });
-                const nuevoMov = { id: 'm_' + Date.now(), fechaHora: formAbonoCobro.fechaHora || obtenerFechaHoraActual(), concepto: `Abono Recibido: ${datos.porCobrar.find(r => r.id === formAbonoCobro.cobroId)?.deudor || ''}`, monto: montoNum, tipo: 'ingreso', cuentaId: formAbonoCobro.cuentaId, categoria: 'Cobro de Préstamo' };
+                const nuevoMov = { id: 'm_' + Date.now(), fechaHora: formAbonoCobro.fechaHora || obtenerFechaHoraActual(), concepto: `Abono Recibido: ${(datos.porCobrar || []).find(r => r.id === formAbonoCobro.cobroId)?.deudor || ''}`, monto: montoNum, tipo: 'ingreso', cuentaId: formAbonoCobro.cuentaId, categoria: 'Cobro de Préstamo' };
 
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, porCobrar: cobrosAct, movimientos: [nuevoMov, ...datos.movimientos] });
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, porCobrar: cobrosAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setModalVisible(null);
             };
 
@@ -366,16 +380,16 @@
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${estadoSincro === 'sincronizando' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : estadoSincro === 'exito' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>
-                                    {estadoSincro === 'sincronizando' ? '⏳ Sincronizando' : estadoSincro === 'exito' ? '⚡ En línea' : '❌ Error Nube'}
-                                </span>
-                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3.5 py-2 rounded-xl text-xs font-extrabold transition">
+                                <button onClick={cargarDesdeSupabase} title="Sincronizar" className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition cursor-pointer ${estadoSincro === 'sincronizando' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : estadoSincro === 'exito' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>
+                                    {estadoSincro === 'sincronizando' ? '⏳ Sincronizando' : estadoSincro === 'exito' ? '⚡ En línea' : '🔄 Reconectar'}
+                                </button>
+                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3.5 py-2 rounded-xl text-xs font-extrabold transition">
                                     + Movimiento
                                 </button>
                             </div>
                         </div>
 
-                        {/* BARRA DE RUBROS FIJA PARA PC (PESTAÑAS SUPERIORES SIN DESPLAZAMIENTOS) */}
+                        {/* BARRA DE RUBROS FIJA PARA PC */}
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
                             <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-hidden">
                                 {rubros.map(r => (
@@ -468,7 +482,7 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                    {datos.cuentas.map(c => (
+                                    {(datos.cuentas || []).map(c => (
                                         <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                             <div>
                                                 <span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo}</span>
@@ -523,13 +537,13 @@
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-sm font-bold text-neutral-300">Bolsillos de Ahorro</h3>
-                                    <button onClick={() => { setFormBolsillo({ id: null, nombre: '', meta: '', actual: '', cuentaId: 'c1' }); setModalVisible('bolsillo'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-extrabold px-3.5 py-2 rounded-xl">
+                                    <button onClick={() => { setFormBolsillo({ id: null, nombre: '', meta: '', actual: '', cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1' }); setModalVisible('bolsillo'); }} className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-extrabold px-3.5 py-2 rounded-xl">
                                         + Bolsillo
                                     </button>
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                    {datos.bolsillos.length === 0 ? (
+                                    {(!datos.bolsillos || datos.bolsillos.length === 0) ? (
                                         <div className="col-span-full text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin bolsillos guardados.</div>
                                     ) : (
                                         datos.bolsillos.map(b => {
@@ -570,7 +584,7 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {datos.deudas.length === 0 ? (
+                                    {(!datos.deudas || datos.deudas.length === 0) ? (
                                         <div className="col-span-full text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">No tienes deudas activas.</div>
                                     ) : (
                                         datos.deudas.map(d => {
@@ -600,7 +614,7 @@
                                                         </div>
                                                     </div>
 
-                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2 rounded-xl border border-red-600/30 transition">
+                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="w-full bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2 rounded-xl border border-red-600/30 transition">
                                                         + Registrar Abono (Resta)
                                                     </button>
                                                 </div>
@@ -622,7 +636,7 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {datos.porCobrar.length === 0 ? (
+                                    {(!datos.porCobrar || datos.porCobrar.length === 0) ? (
                                         <div className="col-span-full text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Nadie te debe dinero.</div>
                                     ) : (
                                         datos.porCobrar.map(r => {
@@ -652,7 +666,7 @@
                                                         </div>
                                                     </div>
 
-                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition">
+                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: (datos.cuentas && datos.cuentas[0]?.id) || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30 transition">
                                                         + Registrar Pago Recibido (Suma)
                                                     </button>
                                                 </div>
@@ -666,11 +680,11 @@
                         {/* MOVIMIENTOS */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-2">
-                                {datos.movimientos.length === 0 ? (
+                                {(!datos.movimientos || datos.movimientos.length === 0) ? (
                                     <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin movimientos registrados.</div>
                                 ) : (
                                     datos.movimientos.map(m => {
-                                        const c = datos.cuentas.find(cuenta => cuenta.id === m.cuentaId);
+                                        const c = (datos.cuentas || []).find(cuenta => cuenta.id === m.cuentaId);
                                         const esIngreso = m.tipo === 'ingreso';
                                         return (
                                             <div key={m.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
@@ -770,7 +784,7 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta</label>
                                     <select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {datos.cuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -880,7 +894,7 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Salida</label>
                                     <select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {datos.cuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
@@ -926,7 +940,7 @@
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Ingreso</label>
                                     <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1">
-                                        {datos.cuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
+                                        {(datos.cuentas || []).map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo)})</option>)}
                                     </select>
                                 </div>
                                 <div className="flex gap-2 pt-2">
