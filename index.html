@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: auto; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
@@ -20,6 +20,17 @@
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
         .safe-bottom-margin-btn { bottom: max(96px, calc(80px + env(safe-area-inset-bottom))); }
     </style>
+    <!-- BLOQUEO ANTI-MIRONES BÁSICO -->
+    <script>
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        document.onkeydown = function(e) {
+            if(e.keyCode == 123) return false; // Bloquea F12
+            if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false; // Bloquea Ctrl+Shift+I
+            if(e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) return false; // Bloquea Ctrl+Shift+C
+            if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false; // Bloquea Ctrl+Shift+J
+            if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false; // Bloquea Ctrl+U
+        }
+    </script>
 </head>
 <body class="bg-black text-neutral-100 min-h-screen pb-48 md:pb-6 select-none">
     <div id="root"></div>
@@ -27,11 +38,9 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        const SUPABASE_URL = "https://qdwqxnuccqzmkzffqlun.supabase.co";
-        const SUPABASE_ANON_KEY = "sb_publishable_3raAVklcVTD0xtDGTPntHA_VrtJ9u_H";
-
-        const PIN_EXACTO = "150624";
-        const PIN_HASH_PREDETERMINADO = "01d36c1a84f5be6ad0cfbd45137eb152e724cf65c4cd98a6eb792fffa70b9ce4";
+        // PON TUS LLAVES DEL NUEVO PROYECTO AQUÍ
+        const SUPABASE_URL = "https://hvjlkjyyyjqebibtffkl.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_ags0yzMs4NRe4nBGbIGN-g_YiFX_r9_";
 
         const obtenerFechaHoraActual = () => {
             const ahora = new Date();
@@ -40,12 +49,6 @@
         };
 
         const obtenerFechaHoy = () => new Date().toISOString().slice(0, 10);
-
-        const hashPin = async (pin) => {
-            const msgUint8 = new TextEncoder().encode(pin + "_salt_jose_finanzas");
-            const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        };
 
         const CUENTAS_PREDETERMINADAS = [
             { id: "c1", nombre: "Daviplata", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
@@ -57,53 +60,20 @@
         ];
 
         const ESTADO_INICIAL = {
-            pinHash: PIN_HASH_PREDETERMINADO,
             cuentas: CUENTAS_PREDETERMINADAS,
-            deudas: [],
-            porCobrar: [],
-            movimientos: [],
-            destinaciones: [],
-            cierresMensuales: [],
-            trades: [],
-            cierresInversion: [],
-            holdings: [],
-            cierresHolding: [],
-            predicciones: [],
-            cierresPredicciones: []
+            deudas: [], porCobrar: [], movimientos: [], destinaciones: [], cierresMensuales: [],
+            trades: [], cierresInversion: [], holdings: [], cierresHolding: [], predicciones: [], cierresPredicciones: []
         };
 
         function Aplicacion() {
-            const [datos, setDatos] = useState(() => {
-                try {
-                    const guardado = localStorage.getItem('mis_finanzas_jose_v29');
-                    if (guardado) {
-                        const parsed = JSON.parse(guardado);
-                        if (!parsed.cuentas || parsed.cuentas.length === 0) parsed.cuentas = CUENTAS_PREDETERMINADAS;
-                        
-                        let c6Existe = parsed.cuentas.find(c => c.id === 'c6');
-                        if (!c6Existe) {
-                            parsed.cuentas.push({ id: "c6", nombre: "Fondo Predicciones", tipo: "Inversión", saldo: 100, saldoCOP: 0, moneda: "USD", activa: true });
-                        } else if (c6Existe.moneda !== 'USD') {
-                            parsed.cuentas = parsed.cuentas.map(c => c.id === 'c6' ? { ...c, moneda: 'USD', saldoCOP: 0 } : c);
-                        }
+            // ESTADOS DE AUTENTICACIÓN
+            const [sesion, setSesion] = useState(null);
+            const [cargandoAuth, setCargandoAuth] = useState(true);
+            const [emailLogin, setEmailLogin] = useState('');
+            const [passLogin, setPassLogin] = useState('');
+            const [errorAuth, setErrorAuth] = useState('');
 
-                        parsed.pinHash = PIN_HASH_PREDETERMINADO;
-                        if (!parsed.trades) parsed.trades = [];
-                        if (!parsed.cierresInversion) parsed.cierresInversion = [];
-                        if (!parsed.holdings) parsed.holdings = [];
-                        if (!parsed.cierresHolding) parsed.cierresHolding = [];
-                        if (!parsed.predicciones) parsed.predicciones = [];
-                        if (!parsed.cierresPredicciones) parsed.cierresPredicciones = [];
-                        return parsed;
-                    }
-                    return ESTADO_INICIAL;
-                } catch(e) { return ESTADO_INICIAL; }
-            });
-
-            const [autenticado, setAutenticado] = useState(() => localStorage.getItem('mis_finanzas_sesion_activa') === 'true');
-            const [inputPin, setInputPin] = useState('');
-            const [recordarDispositivo, setRecordarDispositivo] = useState(true);
-            const [errorPin, setErrorPin] = useState('');
+            const [datos, setDatos] = useState(ESTADO_INICIAL);
             const [ocultarSaldos, setOcultarSaldos] = useState(false);
             const [menuAdminAbierto, setMenuAdminAbierto] = useState(false);
             const [estadoSincro, setEstadoSincro] = useState('espera');
@@ -128,38 +98,65 @@
             const pedirConfirmacion = ({ titulo, mensaje, accion }) => setConfirmacion({ titulo, mensaje, accion });
             const cambiarRubro = (nuevoRubro) => { setBusquedaMov(''); setRubroActivo(nuevoRubro); };
 
+            // INICIALIZACIÓN DE SUPABASE Y AUTENTICACIÓN
             useEffect(() => {
                 try {
-                    if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
+                    if (window.supabase && SUPABASE_URL !== "TU_NUEVA_URL_AQUI") {
                         clienteSupabase.current = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                        cargarDesdeSupabase();
-                    } else { setEstadoSincro('error'); }
-                } catch(e) { setEstadoSincro('error'); }
+                        
+                        // Revisar si ya hay una sesión guardada
+                        clienteSupabase.current.auth.getSession().then(({ data: { session } }) => {
+                            setSesion(session);
+                            setCargandoAuth(false);
+                            if (session) cargarDesdeSupabase();
+                        });
+
+                        // Escuchar cambios (login/logout)
+                        clienteSupabase.current.auth.onAuthStateChange((_event, session) => {
+                            setSesion(session);
+                            if (session) cargarDesdeSupabase();
+                            else setDatos(ESTADO_INICIAL);
+                        });
+                    } else { 
+                        setCargandoAuth(false); 
+                    }
+                } catch(e) { setCargandoAuth(false); }
             }, []);
 
-            useEffect(() => {
-                try { localStorage.setItem('mis_finanzas_jose_v29', JSON.stringify(datos)); } catch(e) {}
-            }, [datos]);
+            const manejarLogin = async (e) => {
+                e.preventDefault();
+                if (!clienteSupabase.current) {
+                    setErrorAuth("Configura las credenciales de Supabase en el código.");
+                    return;
+                }
+                setErrorAuth('');
+                setCargandoAuth(true);
+                const { error } = await clienteSupabase.current.auth.signInWithPassword({
+                    email: emailLogin,
+                    password: passLogin,
+                });
+                if (error) {
+                    setErrorAuth('❌ Correo o contraseña incorrectos');
+                    setCargandoAuth(false);
+                }
+            };
+
+            const cerrarSesion = async () => {
+                await clienteSupabase.current.auth.signOut();
+                mostrarNotificacion("🔒 Bóveda cerrada");
+            };
 
             const cargarDesdeSupabase = async () => {
                 if (!clienteSupabase.current) return;
                 setEstadoSincro('sincronizando');
                 try {
                     const { data: respuesta, error } = await clienteSupabase.current.from('app_data').select('content').eq('id', 'jose_finanzas').single();
+                    
                     if (error && error.code !== 'PGRST116') { setEstadoSincro('error'); return; }
                     
                     if (respuesta && respuesta.content && typeof respuesta.content === 'object') {
                         const remoto = respuesta.content;
                         if (!remoto.cuentas || remoto.cuentas.length === 0) remoto.cuentas = CUENTAS_PREDETERMINADAS;
-                        
-                        let c6Existe = remoto.cuentas.find(c => c.id === 'c6');
-                        if (!c6Existe) {
-                            remoto.cuentas.push({ id: "c6", nombre: "Fondo Predicciones", tipo: "Inversión", saldo: 100, saldoCOP: 0, moneda: "USD", activa: true });
-                        } else if (c6Existe.moneda !== 'USD') {
-                            remoto.cuentas = remoto.cuentas.map(c => c.id === 'c6' ? { ...c, moneda: 'USD', saldoCOP: 0 } : c);
-                        }
-
-                        remoto.pinHash = PIN_HASH_PREDETERMINADO;
                         if (!remoto.trades) remoto.trades = [];
                         if (!remoto.cierresInversion) remoto.cierresInversion = [];
                         if (!remoto.holdings) remoto.holdings = [];
@@ -168,7 +165,10 @@
                         if (!remoto.cierresPredicciones) remoto.cierresPredicciones = [];
                         setDatos(remoto);
                         setEstadoSincro('exito');
-                    } else { guardarEnSupabase(datos); }
+                    } else { 
+                        guardarEnSupabase(ESTADO_INICIAL); 
+                        setDatos(ESTADO_INICIAL);
+                    }
                 } catch(err) { setEstadoSincro('error'); }
             };
 
@@ -176,36 +176,15 @@
                 if (!clienteSupabase.current) return;
                 setEstadoSincro('sincronizando');
                 try {
+                    // El user_id se asigna automáticamente por las políticas RLS que creamos en Supabase
                     const { error } = await clienteSupabase.current.from('app_data').upsert({ id: 'jose_finanzas', content: nuevosDatos, updated_at: new Date() });
                     if (!error) setEstadoSincro('exito'); else setEstadoSincro('error');
                 } catch(err) { setEstadoSincro('error'); }
             };
 
             const actualizarYGuardar = (nuevosDatos) => {
-                const datosAjustados = { ...nuevosDatos, pinHash: PIN_HASH_PREDETERMINADO };
-                setDatos(datosAjustados);
-                guardarEnSupabase(datosAjustados);
-            };
-
-            const manejarVerificacionPin = async (e) => {
-                e.preventDefault();
-                const h = await hashPin(inputPin);
-                if (inputPin === PIN_EXACTO || h === PIN_HASH_PREDETERMINADO) {
-                    setAutenticado(true);
-                    setErrorPin('');
-                    if (recordarDispositivo) localStorage.setItem('mis_finanzas_sesion_activa', 'true');
-                    else localStorage.removeItem('mis_finanzas_sesion_activa');
-                } else {
-                    setErrorPin('❌ PIN incorrecto');
-                    setInputPin('');
-                }
-            };
-
-            const bloquearSesion = () => {
-                setAutenticado(false);
-                setInputPin('');
-                localStorage.removeItem('mis_finanzas_sesion_activa');
-                mostrarNotificacion("🔒 Sesión bloqueada");
+                setDatos(nuevosDatos);
+                guardarEnSupabase(nuevosDatos);
             };
 
             const formatearMoneda = (valor, moneda = 'COP') => {
@@ -325,8 +304,8 @@
                             if (parsed && typeof parsed === 'object') {
                                 pedirConfirmacion({
                                     titulo: "📥 Importar Copia de Seguridad",
-                                    mensaje: "Esta acción reemplazará los datos actuales. ¿Deseas continuar?",
-                                    accion: () => { actualizarYGuardar(parsed); mostrarNotificacion("✅ Copia de seguridad cargada con éxito"); }
+                                    mensaje: "Esta acción reemplazará los datos actuales en la nube. ¿Deseas continuar?",
+                                    accion: () => { actualizarYGuardar(parsed); mostrarNotificacion("✅ Copia de seguridad cargada y guardada en la nube"); }
                                 });
                             }
                         } catch (err) { mostrarNotificacion("Archivo inválido", 'error'); }
@@ -334,12 +313,7 @@
                 }
             };
 
-            const abrirAnularCierre = (id, tipo) => {
-                setFormAnularCierre({ id, tipo, razon: '' });
-                setModalVisible('anularCierre');
-            };
-
-            const procesarAnulacionCierre = (e) => {
+            const procesarAnulacionCierre = (e) => { /* Misma lógica intacta */
                 e.preventDefault();
                 const { id, tipo, razon } = formAnularCierre;
                 if (!razon.trim()) return mostrarNotificacion("Debes ingresar un motivo", 'error');
@@ -348,18 +322,18 @@
                     const c = (datos.cierresInversion || []).find(x => x.id === id);
                     if (!c) return;
                     const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
-                    const nuevoMov = { id: 'm_dcinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Scalping: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c5', categoria: 'Ajuste' };
+                    const nuevoMov = { id: 'm_dcinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Scalping: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c5', categoria: 'Ajuste', moneda: 'COP' };
                     actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: datos.cierresInversion.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 } else if (tipo === 'predicciones') {
                     const c = (datos.cierresPredicciones || []).find(x => x.id === id);
                     if (!c) return;
                     const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
-                    const nuevoMov = { id: 'm_dcpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Predicciones: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c6', categoria: 'Ajuste' };
+                    const nuevoMov = { id: 'm_dcpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Predicciones: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c6', categoria: 'Ajuste', moneda: 'COP' };
                     actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: datos.cierresPredicciones.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 } else if (tipo === 'holding') {
                     const c = (datos.cierresHolding || []).find(x => x.id === id);
                     if (!c) return;
-                    const nuevoMov = { id: 'm_dchold_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Holding: ${c.activo} (${razon})`, monto: c.gananciaNetaCOP, tipo: 'egreso', cuentaId: 'c1', categoria: 'Ajuste' };
+                    const nuevoMov = { id: 'm_dchold_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Holding: ${c.activo} (${razon})`, monto: c.gananciaNetaCOP, tipo: 'egreso', cuentaId: 'c1', categoria: 'Ajuste', moneda: 'COP' };
                     actualizarYGuardar({ ...datos, cierresHolding: datos.cierresHolding.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 }
                 
@@ -367,10 +341,8 @@
                 mostrarNotificacion("🗑️ Liquidación anulada con éxito");
             };
 
-            const abrirEditarCierre = (c, tipo) => {
-                setFormEditCierre({ id: c.id, tipo, nombre: c.nombre || c.activo, tasaTRM: c.tasaTRM || c.trmSalida });
-                setModalVisible('editarCierre');
-            };
+            const abrirAnularCierre = (id, tipo) => { setFormAnularCierre({ id, tipo, razon: '' }); setModalVisible('anularCierre'); };
+            const abrirEditarCierre = (c, tipo) => { setFormEditCierre({ id: c.id, tipo, nombre: c.nombre || c.activo, tasaTRM: c.tasaTRM || c.trmSalida }); setModalVisible('editarCierre'); };
 
             const procesarEdicionCierre = (e) => {
                 e.preventDefault();
@@ -386,7 +358,7 @@
                     const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
                     const cierresAct = datos.cierresInversion.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
                     let movsAct = [...(datos.movimientos || [])];
-                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Scalp: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c5' });
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Scalp: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c5', moneda: 'COP' });
                     actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: cierresAct, movimientos: movsAct });
                 } else if (tipo === 'predicciones') {
                     const c = (datos.cierresPredicciones || []).find(x => x.id === id);
@@ -396,7 +368,7 @@
                     const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
                     const cierresAct = datos.cierresPredicciones.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
                     let movsAct = [...(datos.movimientos || [])];
-                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Pred: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c6' });
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Pred: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c6', moneda: 'COP' });
                     actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: cierresAct, movimientos: movsAct });
                 } else if (tipo === 'holding') {
                     const c = (datos.cierresHolding || []).find(x => x.id === id);
@@ -464,7 +436,7 @@
                 const cuentasAct = listaCuentas.map(c => c.id === 'c5' ? { ...c, saldoCOP: (c.saldoCOP || 0) + gananciaCOP } : c);
 
                 const nuevoCierre = { id: 'c_inv_' + Date.now(), tipo: formCierreInv.tipo, nombre: formCierreInv.nombre || (formCierreInv.tipo === 'semanal' ? 'Cierre Semanal' : 'Cierre Mensual'), fechaHora: obtenerFechaHoraActual(), gananciaUSD, tasaTRM: trm, totalCOP: gananciaCOP };
-                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `📈 Cierre Scalping ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c5', categoria: 'Scalping Gain' } : null;
+                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `📈 Cierre Scalping ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c5', categoria: 'Scalping Gain', moneda: 'COP' } : null;
                 const tradesArchivados = (datos.trades || []).map(t => ({ ...t, cerrado: true }));
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: tradesArchivados, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])], movimientos: nuevoMov ? [nuevoMov, ...(datos.movimientos || [])] : datos.movimientos });
@@ -487,7 +459,7 @@
                     return c;
                 });
                 const dest = listaCuentas.find(c => c.id === formTransferUtilidad.cuentaDestinoId);
-                const nuevoMov = { id: 'm_tu_' + Date.now(), fechaHora: formTransferUtilidad.fechaHora, concepto: `⇄ Retiro Utilidad ➔ ${dest?.nombre}`, monto, tipo: 'transferencia', cuentaId: 'c5', categoria: 'Retiro' };
+                const nuevoMov = { id: 'm_tu_' + Date.now(), fechaHora: formTransferUtilidad.fechaHora, concepto: `⇄ Retiro Utilidad ➔ ${dest?.nombre}`, monto, tipo: 'transferencia', cuentaId: 'c5', categoria: 'Retiro', moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setFormTransferUtilidad({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
@@ -538,7 +510,7 @@
                 const holdingsAct = (datos.holdings || []).map(x => x.id === h.id ? { ...x, cerrado: true } : x);
 
                 const regCierre = { id: 'c_hold_' + Date.now(), activo: h.activo, trmEntrada: h.trmEntrada, trmSalida, costoCOP: h.costoCOP, gananciaNetaCOP, gananciaUSD, porcentajeRealCOP: porcentaje, cuentaDestinoNombre: dest?.nombre, fechaHoraCierre: formHoldingSalida.fechaHora };
-                const nuevoMov = { id: 'm_shold_' + Date.now(), fechaHora: formHoldingSalida.fechaHora, concepto: `💎 Cierre Holding ${h.activo}`, monto: retornadoCOP, tipo: 'ingreso', cuentaId: dest.id, categoria: 'Venta Holding' };
+                const nuevoMov = { id: 'm_shold_' + Date.now(), fechaHora: formHoldingSalida.fechaHora, concepto: `💎 Cierre Holding ${h.activo}`, monto: retornadoCOP, tipo: 'ingreso', cuentaId: dest.id, categoria: 'Venta Holding', moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, holdings: holdingsAct, cierresHolding: [regCierre, ...(datos.cierresHolding || [])], movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setFormHoldingSalida({ holdingId: '', montoUSDSalida: '', trmSalida: '4000', cuentaDestinoId: 'c3', fechaHora: obtenerFechaHoraActual() });
@@ -604,18 +576,8 @@
                 mostrarNotificacion(resultado === 'acertada' ? "🎯 Predicción Acertada" : "❌ Predicción Fallida");
             };
 
-            const abrirResolverPrediccion = (id) => {
-                setFormResolverPred({ id, montoRetornadoUSD: '' });
-                setModalVisible('resolverPrediccion');
-            };
-
-            const procesarResolverPrediccion = (e) => {
-                e.preventDefault();
-                if(formResolverPred.montoRetornadoUSD) {
-                    resolverPrediccion(formResolverPred.id, 'acertada', formResolverPred.montoRetornadoUSD);
-                }
-                setModalVisible(null);
-            };
+            const abrirResolverPrediccion = (id) => { setFormResolverPred({ id, montoRetornadoUSD: '' }); setModalVisible('resolverPrediccion'); };
+            const procesarResolverPrediccion = (e) => { e.preventDefault(); if(formResolverPred.montoRetornadoUSD) { resolverPrediccion(formResolverPred.id, 'acertada', formResolverPred.montoRetornadoUSD); } setModalVisible(null); };
 
             const eliminarPrediccion = (id) => {
                 pedirConfirmacion({
@@ -646,7 +608,7 @@
                 const cuentasAct = listaCuentas.map(c => c.id === 'c6' ? { ...c, saldoCOP: (c.saldoCOP || 0) + gananciaCOP } : c);
 
                 const nuevoCierre = { id: 'c_pred_' + Date.now(), tipo: formCierrePred.tipo, nombre: formCierrePred.nombre || (formCierrePred.tipo === 'semanal' ? 'Cierre Semanal' : 'Cierre Mensual'), fechaHora: obtenerFechaHoraActual(), gananciaUSD, tasaTRM: trm, totalCOP: gananciaCOP };
-                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🔮 Cierre Predicciones ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c6', categoria: 'Predicciones Gain' } : null;
+                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🔮 Cierre Predicciones ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c6', categoria: 'Predicciones Gain', moneda: 'COP' } : null;
                 const predArchivadas = (datos.predicciones || []).map(p => ({ ...p, cerrado: true }));
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, predicciones: predArchivadas, cierresPredicciones: [nuevoCierre, ...(datos.cierresPredicciones || [])], movimientos: nuevoMov ? [nuevoMov, ...(datos.movimientos || [])] : datos.movimientos });
@@ -662,23 +624,20 @@
 
                 let cuentasAct = [...listaCuentas];
                 let movsAct = [...(datos.movimientos || [])];
+                const cuentaSel = cuentasAct.find(c => c.id === formMov.cuentaId);
 
                 if (formMov.id) {
                     const movAnt = movsAct.find(m => m.id === formMov.id);
                     cuentasAct = cuentasAct.map(c => {
                         let temp = c.saldo;
-                        if (movAnt && c.id === movAnt.cuentaId) {
-                            temp = movAnt.tipo === 'ingreso' ? temp - movAnt.monto : temp + movAnt.monto;
-                        }
-                        if (c.id === formMov.cuentaId) {
-                            temp = formMov.tipo === 'ingreso' ? temp + montoNum : temp - montoNum;
-                        }
+                        if (movAnt && c.id === movAnt.cuentaId) temp = movAnt.tipo === 'ingreso' ? temp - movAnt.monto : temp + movAnt.monto;
+                        if (c.id === formMov.cuentaId) temp = formMov.tipo === 'ingreso' ? temp + montoNum : temp - montoNum;
                         return { ...c, saldo: temp };
                     });
-                    movsAct = movsAct.map(m => m.id === formMov.id ? { ...m, fechaHora: formMov.fechaHora, concepto: formMov.concepto, monto: montoNum, tipo: formMov.tipo, cuentaId: formMov.cuentaId } : m);
+                    movsAct = movsAct.map(m => m.id === formMov.id ? { ...m, fechaHora: formMov.fechaHora, concepto: formMov.concepto, monto: montoNum, tipo: formMov.tipo, cuentaId: formMov.cuentaId, moneda: cuentaSel?.moneda || 'COP' } : m);
                 } else {
                     cuentasAct = cuentasAct.map(c => c.id === formMov.cuentaId ? { ...c, saldo: formMov.tipo === 'ingreso' ? c.saldo + montoNum : c.saldo - montoNum } : c);
-                    movsAct = [{ id: 'm_' + Date.now(), fechaHora: formMov.fechaHora, concepto: formMov.concepto, monto: montoNum, tipo: formMov.tipo, cuentaId: formMov.cuentaId }, ...movsAct];
+                    movsAct = [{ id: 'm_' + Date.now(), fechaHora: formMov.fechaHora, concepto: formMov.concepto, monto: montoNum, tipo: formMov.tipo, cuentaId: formMov.cuentaId, moneda: cuentaSel?.moneda || 'COP' }, ...movsAct];
                 }
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: movsAct });
@@ -701,7 +660,7 @@
                     return c;
                 });
 
-                const nuevoMov = { id: 'm_tr_' + Date.now(), fechaHora: formTransfer.fechaHora, concepto: `⇄ ${formTransfer.concepto} (${origen?.nombre} ➔ ${destino?.nombre})`, monto: montoNum, tipo: 'transferencia', cuentaId: formTransfer.cuentaOrigenId };
+                const nuevoMov = { id: 'm_tr_' + Date.now(), fechaHora: formTransfer.fechaHora, concepto: `⇄ ${formTransfer.concepto} (${origen?.nombre} ➔ ${destino?.nombre})`, monto: montoNum, tipo: 'transferencia', cuentaId: formTransfer.cuentaOrigenId, moneda: origen?.moneda || 'COP' };
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setFormTransfer({ cuentaOrigenId: 'c3', cuentaDestinoId: 'c2', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
                 setModalVisible(null);
@@ -719,7 +678,7 @@
                 if (diff === 0) { setModalVisible(null); return; }
 
                 const cuentasAct = listaCuentas.map(c => c.id === formAjusteSaldo.cuentaId ? { ...c, saldo: nuevo } : c);
-                const nuevoMov = { id: 'm_aj_' + Date.now(), fechaHora: formAjusteSaldo.fechaHora, concepto: `⚙️ Ajuste Saldo: ${formAjusteSaldo.nota}`, monto: Math.abs(diff), tipo: diff > 0 ? 'ingreso' : 'egreso', cuentaId: formAjusteSaldo.cuentaId };
+                const nuevoMov = { id: 'm_aj_' + Date.now(), fechaHora: formAjusteSaldo.fechaHora, concepto: `⚙️ Ajuste Saldo: ${formAjusteSaldo.nota}`, monto: Math.abs(diff), tipo: diff > 0 ? 'ingreso' : 'egreso', cuentaId: formAjusteSaldo.cuentaId, moneda: cuenta.moneda };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
                 setFormAjusteSaldo({ cuentaId: 'c1', nuevoSaldo: '', nota: '', fechaHora: obtenerFechaHoraActual() });
@@ -745,15 +704,10 @@
                 e.preventDefault();
                 const monto = parseFloat(formDestino.monto) || 0;
                 let lista = [...(datos.destinaciones || [])];
-                if (formDestino.id) {
-                    lista = lista.map(d => d.id === formDestino.id ? { ...d, nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion } : d);
-                } else {
-                    lista.push({ id: 'dest_' + Date.now(), nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion });
-                }
+                if (formDestino.id) lista = lista.map(d => d.id === formDestino.id ? { ...d, nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion } : d);
+                else lista.push({ id: 'dest_' + Date.now(), nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion });
                 actualizarYGuardar({ ...datos, destinaciones: lista });
-                setFormDestino({ id: null, nombre: '', monto: '', descripcion: '' });
-                setModalVisible(null);
-                mostrarNotificacion("✅ Destinación guardada");
+                setFormDestino({ id: null, nombre: '', monto: '', descripcion: '' }); setModalVisible(null); mostrarNotificacion("✅ Destinación guardada");
             };
 
             const ejecutarPagoDestinacion = (e) => {
@@ -763,32 +717,23 @@
                 if (!dest || isNaN(monto)) return;
 
                 const cuentasAct = listaCuentas.map(c => c.id === formEjecutarDestino.cuentaId ? { ...c, saldo: c.saldo - monto } : c);
-                const nuevoMov = { id: 'm_dp_' + Date.now(), fechaHora: formEjecutarDestino.fechaHora, concepto: `🎯 Gasto Destinado: ${dest.nombre}`, monto, tipo: 'egreso', cuentaId: formEjecutarDestino.cuentaId };
+                const nuevoMov = { id: 'm_dp_' + Date.now(), fechaHora: formEjecutarDestino.fechaHora, concepto: `🎯 Gasto Destinado: ${dest.nombre}`, monto, tipo: 'egreso', cuentaId: formEjecutarDestino.cuentaId, moneda: 'COP' };
                 const destAct = monto >= dest.monto ? (datos.destinaciones || []).filter(d => d.id !== formEjecutarDestino.destinacionId) : (datos.destinaciones || []).map(d => d.id === formEjecutarDestino.destinacionId ? { ...d, monto: d.monto - monto } : d);
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, destinaciones: destAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                setFormEjecutarDestino({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
-                setModalVisible(null);
-                mostrarNotificacion("⚡ Gasto ejecutado");
+                setFormEjecutarDestino({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible(null); mostrarNotificacion("⚡ Gasto ejecutado");
             };
 
-            const eliminarDestinacion = (id) => {
-                pedirConfirmacion({ titulo: "🗑️ Eliminar Destinación", mensaje: "¿Deseas eliminar este fondo reservado?", accion: () => { actualizarYGuardar({ ...datos, destinaciones: (datos.destinaciones || []).filter(d => d.id !== id) }); mostrarNotificacion("🗑️ Eliminada"); } });
-            };
+            const eliminarDestinacion = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Destinación", mensaje: "¿Deseas eliminar este fondo reservado?", accion: () => { actualizarYGuardar({ ...datos, destinaciones: (datos.destinaciones || []).filter(d => d.id !== id) }); mostrarNotificacion("🗑️ Eliminada"); } }); };
 
             const guardarDeuda = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formDeuda.montoOriginal) || 0;
                 let lista = [...(datos.deudas || [])];
-                if (formDeuda.id) {
-                    lista = lista.map(d => d.id === formDeuda.id ? { ...d, entidad: formDeuda.entidad, concepto: formDeuda.concepto, montoOriginal: orig, fechaVencimiento: formDeuda.fechaVencimiento, fechaHora: formDeuda.fechaHora } : d);
-                } else {
-                    lista.push({ id: 'd_' + Date.now(), entidad: formDeuda.entidad, concepto: formDeuda.concepto, montoOriginal: orig, fechaVencimiento: formDeuda.fechaVencimiento, fechaHora: formDeuda.fechaHora, abonos: [] });
-                }
+                if (formDeuda.id) lista = lista.map(d => d.id === formDeuda.id ? { ...d, entidad: formDeuda.entidad, concepto: formDeuda.concepto, montoOriginal: orig, fechaVencimiento: formDeuda.fechaVencimiento, fechaHora: formDeuda.fechaHora } : d);
+                else lista.push({ id: 'd_' + Date.now(), entidad: formDeuda.entidad, concepto: formDeuda.concepto, montoOriginal: orig, fechaVencimiento: formDeuda.fechaVencimiento, fechaHora: formDeuda.fechaHora, abonos: [] });
                 actualizarYGuardar({ ...datos, deudas: lista });
-                setFormDeuda({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() });
-                setModalVisible(null);
-                mostrarNotificacion("✅ Deuda registrada");
+                setFormDeuda({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaVencimiento: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible(null); mostrarNotificacion("✅ Deuda registrada");
             };
 
             const abonarDeuda = (e) => {
@@ -798,31 +743,22 @@
 
                 const cuentasAct = listaCuentas.map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - monto } : c);
                 const deudasAct = (datos.deudas || []).map(d => d.id === formAbonoDeuda.deudaId ? { ...d, abonos: [...(d.abonos || []), { id: 'ab_' + Date.now(), monto, fechaHora: formAbonoDeuda.fechaHora, cuentaId: formAbonoDeuda.cuentaId }] } : d);
-                const nuevoMov = { id: 'm_ad_' + Date.now(), fechaHora: formAbonoDeuda.fechaHora, concepto: `Abono Deuda`, monto, tipo: 'egreso', cuentaId: formAbonoDeuda.cuentaId };
+                const nuevoMov = { id: 'm_ad_' + Date.now(), fechaHora: formAbonoDeuda.fechaHora, concepto: `Abono Deuda`, monto, tipo: 'egreso', cuentaId: formAbonoDeuda.cuentaId, moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, deudas: deudasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                setFormAbonoDeuda({ deudaId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
-                setModalVisible(null);
-                mostrarNotificacion("✅ Abono registrado");
+                setFormAbonoDeuda({ deudaId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible(null); mostrarNotificacion("✅ Abono registrado");
             };
 
-            const eliminarDeuda = (id) => {
-                pedirConfirmacion({ titulo: "🗑️ Eliminar Deuda", mensaje: "¿Eliminar este registro?", accion: () => { actualizarYGuardar({ ...datos, deudas: (datos.deudas || []).filter(d => d.id !== id) }); mostrarNotificacion("🗑️ Eliminada"); } });
-            };
+            const eliminarDeuda = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Deuda", mensaje: "¿Eliminar este registro?", accion: () => { actualizarYGuardar({ ...datos, deudas: (datos.deudas || []).filter(d => d.id !== id) }); mostrarNotificacion("🗑️ Eliminada"); } }); };
 
             const guardarPorCobrar = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formPorCobrar.montoOriginal) || 0;
                 let lista = [...(datos.porCobrar || [])];
-                if (formPorCobrar.id) {
-                    lista = lista.map(r => r.id === formPorCobrar.id ? { ...r, deudor: formPorCobrar.deudor, concepto: formPorCobrar.concepto, montoOriginal: orig, fechaAcordada: formPorCobrar.fechaAcordada, fechaHora: formPorCobrar.fechaHora } : r);
-                } else {
-                    lista.push({ id: 'r_' + Date.now(), deudor: formPorCobrar.deudor, concepto: formPorCobrar.concepto, montoOriginal: orig, fechaAcordada: formPorCobrar.fechaAcordada, fechaHora: formPorCobrar.fechaHora, abonos: [] });
-                }
+                if (formPorCobrar.id) lista = lista.map(r => r.id === formPorCobrar.id ? { ...r, deudor: formPorCobrar.deudor, concepto: formPorCobrar.concepto, montoOriginal: orig, fechaAcordada: formPorCobrar.fechaAcordada, fechaHora: formPorCobrar.fechaHora } : r);
+                else lista.push({ id: 'r_' + Date.now(), deudor: formPorCobrar.deudor, concepto: formPorCobrar.concepto, montoOriginal: orig, fechaAcordada: formPorCobrar.fechaAcordada, fechaHora: formPorCobrar.fechaHora, abonos: [] });
                 actualizarYGuardar({ ...datos, porCobrar: lista });
-                setFormPorCobrar({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaAcordada: '', fechaHora: obtenerFechaHoraActual() });
-                setModalVisible(null);
-                mostrarNotificacion("✅ Préstamo registrado");
+                setFormPorCobrar({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaAcordada: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible(null); mostrarNotificacion("✅ Préstamo registrado");
             };
 
             const recibirAbonoCobro = (e) => {
@@ -832,17 +768,13 @@
 
                 const cuentasAct = listaCuentas.map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + monto } : c);
                 const cobrosAct = (datos.porCobrar || []).map(r => r.id === formAbonoCobro.cobroId ? { ...r, abonos: [...(r.abonos || []), { id: 'rab_' + Date.now(), monto, fechaHora: formAbonoCobro.fechaHora, cuentaId: formAbonoCobro.cuentaId }] } : r);
-                const nuevoMov = { id: 'm_rc_' + Date.now(), fechaHora: formAbonoCobro.fechaHora, concepto: `Abono Recibido`, monto, tipo: 'ingreso', cuentaId: formAbonoCobro.cuentaId };
+                const nuevoMov = { id: 'm_rc_' + Date.now(), fechaHora: formAbonoCobro.fechaHora, concepto: `Abono Recibido`, monto, tipo: 'ingreso', cuentaId: formAbonoCobro.cuentaId, moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, porCobrar: cobrosAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                setFormAbonoCobro({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
-                setModalVisible(null);
-                mostrarNotificacion("✅ Cobro registrado");
+                setFormAbonoCobro({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible(null); mostrarNotificacion("✅ Cobro registrado");
             };
 
-            const eliminarPorCobrar = (id) => {
-                pedirConfirmacion({ titulo: "🗑️ Eliminar Préstamo", mensaje: "¿Eliminar este cobro?", accion: () => { actualizarYGuardar({ ...datos, porCobrar: (datos.porCobrar || []).filter(r => r.id !== id) }); mostrarNotificacion("🗑️ Eliminado"); } });
-            };
+            const eliminarPorCobrar = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Préstamo", mensaje: "¿Eliminar este cobro?", accion: () => { actualizarYGuardar({ ...datos, porCobrar: (datos.porCobrar || []).filter(r => r.id !== id) }); mostrarNotificacion("🗑️ Eliminado"); } }); };
 
             const movimientosFiltrados = useMemo(() => {
                 let lista = datos.movimientos || [];
@@ -890,18 +822,25 @@
                 { id: 'movimientos', etiqueta: '📜 Historial', corto: 'Historial', icono: '📜' }
             ];
 
-            if (!autenticado) {
+            // PANTALLA DE CARGA Y AUTENTICACIÓN REAL
+            if (cargandoAuth) {
+                return <div className="min-h-screen bg-black flex items-center justify-center text-emerald-500 font-black text-xl">Conectando Bóveda...</div>;
+            }
+
+            if (!sesion) {
                 return (
                     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-                        <form onSubmit={manejarVerificacionPin} className="bg-neutral-900 border border-neutral-800 p-6 md:p-8 rounded-3xl max-w-xs w-full text-center space-y-6 shadow-2xl">
+                        <form onSubmit={manejarLogin} className="bg-neutral-900 border border-neutral-800 p-6 md:p-8 rounded-3xl max-w-xs w-full text-center space-y-6 shadow-2xl">
                             <div className="w-16 h-16 bg-neutral-950 border border-neutral-800 rounded-2xl flex items-center justify-center text-3xl mx-auto">🚀</div>
-                            <div><h2 className="text-xl font-bold">Mis Finanzas</h2><p className="text-xs text-neutral-400 mt-1">Ingresa tu PIN de acceso</p></div>
-                            <input type="password" maxLength="6" autoFocus required placeholder="••••••" value={inputPin} onChange={e => { setErrorPin(''); setInputPin(e.target.value); }} className="w-full bg-black border border-neutral-800 text-center text-2xl tracking-[0.4em] font-black py-3 rounded-2xl focus:outline-none focus:border-emerald-500 text-emerald-400" />
-                            {errorPin && <p className="text-xs text-red-500 font-bold">{errorPin}</p>}
-                            <label className="flex items-center justify-center gap-2 text-xs text-neutral-400 cursor-pointer">
-                                <input type="checkbox" checked={recordarDispositivo} onChange={e => setRecordarDispositivo(e.target.checked)} className="rounded bg-black border-neutral-800 text-emerald-500 focus:ring-0" /> Recordar este dispositivo
-                            </label>
-                            <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold py-3.5 rounded-2xl transition">Desbloquear</button>
+                            <div><h2 className="text-xl font-bold">Mis Finanzas</h2><p className="text-xs text-neutral-400 mt-1">Bóveda Encriptada</p></div>
+                            
+                            <input type="email" required placeholder="Correo de acceso" value={emailLogin} onChange={e => { setErrorAuth(''); setEmailLogin(e.target.value); }} className="w-full bg-black border border-neutral-800 text-center text-sm font-bold py-4 rounded-xl focus:outline-none focus:border-emerald-500 text-white" />
+                            
+                            <input type="password" required placeholder="Contraseña segura" value={passLogin} onChange={e => { setErrorAuth(''); setPassLogin(e.target.value); }} className="w-full bg-black border border-neutral-800 text-center text-sm font-bold py-4 rounded-xl focus:outline-none focus:border-emerald-500 text-white" />
+                            
+                            {errorAuth && <p className="text-xs text-red-500 font-bold">{errorAuth}</p>}
+                            
+                            <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold py-3.5 rounded-xl transition">Entrar</button>
                         </form>
                     </div>
                 );
@@ -940,7 +879,7 @@
                                             <button onClick={() => { exportarBackupJSON(); setMenuAdminAbierto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-emerald-400 font-bold">💾 Exportar Backup</button>
                                             <button onClick={() => { if(inputFileRef.current) inputFileRef.current.click(); setMenuAdminAbierto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-amber-400 font-bold">📥 Cargar Backup</button>
                                             <div className="border-t border-neutral-800 my-1"></div>
-                                            <button onClick={() => { bloquearSesion(); setMenuAdminAbierto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-red-400 font-bold">🔒 Bloquear Sesión</button>
+                                            <button onClick={() => { cerrarSesion(); setMenuAdminAbierto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-red-400 font-bold">🔒 Cerrar Bóveda</button>
                                         </div>
                                     )}
                                 </div>
@@ -948,8 +887,9 @@
                                 <div><h1 className="font-bold text-white text-base leading-none">Mis Finanzas</h1><span className="text-[10px] text-emerald-400 font-semibold">Jose Pacheco</span></div>
                             </div>
                             <div className="flex items-center gap-1.5">
-                                <button onClick={() => setOcultarSaldos(!ocultarSaldos)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold">{ocultarSaldos ? '👁️‍🗨️' : '👁️'}</button>
-                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold">⇄ Transferir</button>
+                                <button onClick={() => window.location.reload()} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">🔄</button>
+                                <button onClick={() => setOcultarSaldos(!ocultarSaldos)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">{ocultarSaldos ? '👁️‍🗨️' : '👁️'}</button>
+                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">⇄ Transferir</button>
                                 <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold">+ Mov</button>
                             </div>
                         </div>
@@ -1391,7 +1331,7 @@
                                                         <p className="text-[11px] text-neutral-400">{c?.nombre || 'General'} • {formatearFechaHora(m.fechaHora)}</p>
                                                     </div>
                                                     <div className="text-right">
-                                                        <div className={`text-base font-black ${esTransferencia ? 'text-amber-400' : esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>{esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, c?.moneda || 'COP')}</div>
+                                                        <div className={`text-base font-black ${esTransferencia ? 'text-amber-400' : esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>{esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, m.moneda || c?.moneda || 'COP')}</div>
                                                         <div className="flex gap-2 justify-end mt-1">
                                                             <button onClick={() => { setFormMov({ ...m }); setModalVisible('movimiento'); }} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
                                                             <button onClick={() => eliminarMovimiento(m.id)} className="text-[10px] text-neutral-500 hover:text-red-500 underline">Eliminar</button>
@@ -1406,6 +1346,7 @@
                         )}
                     </main>
 
+                    {/* MODALES */}
                     {modalVisible === 'anularCierre' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
                             <form onSubmit={procesarAnulacionCierre} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
