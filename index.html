@@ -116,8 +116,10 @@
 
             const [busquedaMov, setBusquedaMov] = useState('');
             const [filtroFechaMov, setFiltroFechaMov] = useState('todos');
+            const [filtroCuentaMov, setFiltroCuentaMov] = useState('todas');
 
             const clienteSupabase = useRef(null);
+            const inputFileRef = useRef(null);
 
             const mostrarNotificacion = (mensaje, tipo = 'exito') => {
                 setNotificacion({ mensaje, tipo });
@@ -297,13 +299,67 @@
             const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
             const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
 
-            // Cálculo P&L Neto Automático
-            const pnlNetoUSD = useMemo(() => {
-                const trades = (datos?.trades || []).filter(t => !t.cerrado);
-                const gains = trades.reduce((acc, t) => t.resultado === 'gain' ? acc + (parseFloat(t.montoUSD) || 0) : acc, 0);
-                const losses = trades.reduce((acc, t) => t.resultado === 'loss' ? acc + (parseFloat(t.montoUSD) || 0) : acc, 0);
-                return gains - losses;
+            // 📈 MÉTRICAS AVANZADAS DE TRADING
+            const metricasTrading = useMemo(() => {
+                const tradesActivos = (datos?.trades || []).filter(t => !t.cerrado);
+                const totalTrades = tradesActivos.length;
+                
+                const gains = tradesActivos.filter(t => t.resultado === 'gain');
+                const losses = tradesActivos.filter(t => t.resultado === 'loss');
+
+                const totalGainsUSD = gains.reduce((acc, t) => acc + (parseFloat(t.montoUSD) || 0), 0);
+                const totalLossesUSD = losses.reduce((acc, t) => acc + (parseFloat(t.montoUSD) || 0), 0);
+                const pnlNetoUSD = totalGainsUSD - totalLossesUSD;
+
+                const winRate = totalTrades > 0 ? ((gains.length / totalTrades) * 100).toFixed(1) : '0.0';
+
+                const avgGain = gains.length > 0 ? totalGainsUSD / gains.length : 0;
+                const avgLoss = losses.length > 0 ? totalLossesUSD / losses.length : 0;
+
+                const ratioRR = avgLoss > 0 ? (avgGain / avgLoss).toFixed(2) : (avgGain > 0 ? '∞' : '0.00');
+
+                return { totalTrades, winRate, gainsCount: gains.length, lossesCount: losses.length, avgGain, avgLoss, ratioRR, pnlNetoUSD };
             }, [datos.trades]);
+
+            const pnlNetoUSD = metricasTrading.pnlNetoUSD;
+
+            // 💾 EXPORTAR E IMPORTAR JSON BACKUP
+            const exportarBackupJSON = () => {
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(datos, null, 2))}`;
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", jsonString);
+                downloadAnchor.setAttribute("download", `Mis_Finanzas_Jose_Backup_${obtenerFechaHoy()}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+                mostrarNotificacion("💾 Backup completo exportado (.json)");
+            };
+
+            const importarBackupJSON = (e) => {
+                const fileReader = new FileReader();
+                if (e.target.files && e.target.files[0]) {
+                    fileReader.readAsText(e.target.files[0], "UTF-8");
+                    fileReader.onload = (event) => {
+                        try {
+                            const parsed = JSON.parse(event.target.result);
+                            if (parsed && typeof parsed === 'object') {
+                                pedirConfirmacion({
+                                    titulo: "📥 Importar Copia de Seguridad",
+                                    mensaje: "Esta acción reemplazará los datos actuales por la copia seleccionada. ¿Deseas continuar?",
+                                    accion: () => {
+                                        actualizarYGuardar(parsed);
+                                        mostrarNotificacion("✅ Copia de seguridad cargada con éxito");
+                                    }
+                                });
+                            } else {
+                                mostrarNotificacion("El archivo JSON no tiene un formato válido", 'error');
+                            }
+                        } catch (error) {
+                            mostrarNotificacion("Error al leer el archivo de backup", 'error');
+                        }
+                    };
+                }
+            };
 
             // Operaciones Trades
             const guardarTrade = (e) => {
@@ -781,8 +837,13 @@
                 mostrarNotificacion("📥 Reporte descargado en CSV");
             };
 
+            // 🔍 FILTRADO EN HISTORIAL (POR CONCEPTO, FECHA Y CUENTA)
             const movimientosFiltrados = useMemo(() => {
                 let lista = datos.movimientos || [];
+
+                if (filtroCuentaMov !== 'todas') {
+                    lista = lista.filter(m => m.cuentaId === filtroCuentaMov);
+                }
 
                 if (busquedaMov.trim()) {
                     const q = busquedaMov.toLowerCase();
@@ -813,7 +874,7 @@
                 }
 
                 return lista;
-            }, [datos.movimientos, busquedaMov, filtroFechaMov, listaCuentas]);
+            }, [datos.movimientos, busquedaMov, filtroFechaMov, filtroCuentaMov, listaCuentas]);
 
             const calcularAlertaVencimiento = (fechaVenc) => {
                 if (!fechaVenc) return null;
@@ -824,11 +885,30 @@
 
                 const diffDays = Math.ceil((venc - hoy) / (1000 * 60 * 60 * 24));
 
-                if (diffDays < 0) return { texto: '🚨 Vencido', clase: 'bg-red-500/20 text-red-400 border-red-500/30' };
-                if (diffDays === 0) return { texto: '⚠️ Vence Hoy', clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
-                if (diffDays <= 5) return { texto: `⚠️ Vence en ${diffDays} días`, clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
+                if (diffDays < 0) return { texto: '🚨 Vencido', clase: 'bg-red-500/20 text-red-400 border-red-500/30', dias: diffDays };
+                if (diffDays === 0) return { texto: '⚠️ Vence Hoy', clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30', dias: 0 };
+                if (diffDays <= 3) return { texto: `⚠️ Vence en ${diffDays} días`, clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30', dias: diffDays };
                 return null;
             };
+
+            // ⚠️ ALERTAS DESTACADAS EN INICIO
+            const proximosVencimientos = useMemo(() => {
+                const alertasDeudas = (datos?.deudas || []).map(d => {
+                    const totalAbonado = (d.abonos || []).reduce((acc, p) => acc + p.monto, 0);
+                    const pendiente = Math.max(0, d.montoOriginal - totalAbonado);
+                    const alerta = calcularAlertaVencimiento(d.fechaVencimiento);
+                    return (pendiente > 0 && alerta) ? { ...d, tipoItem: 'deuda', pendiente, alerta } : null;
+                }).filter(Boolean);
+
+                const alertasCobros = (datos?.porCobrar || []).map(r => {
+                    const totalAbonado = (r.abonos || []).reduce((acc, p) => acc + p.monto, 0);
+                    const pendiente = Math.max(0, r.montoOriginal - totalAbonado);
+                    const alerta = calcularAlertaVencimiento(r.fechaAcordada);
+                    return (pendiente > 0 && alerta) ? { ...r, tipoItem: 'cobro', pendiente, alerta } : null;
+                }).filter(Boolean);
+
+                return [...alertasDeudas, ...alertasCobros].sort((a, b) => a.alerta.dias - b.alerta.dias);
+            }, [datos.deudas, datos.porCobrar]);
 
             const rubros = [
                 { id: 'inicio', etiqueta: '📊 Inicio', corto: 'Inicio', icono: '📊' },
@@ -888,6 +968,15 @@
             return (
                 <div className="flex flex-col min-h-screen bg-black text-neutral-100">
                     
+                    {/* INPUT OCULTO PARA IMPORTAR BACKUP JSON */}
+                    <input
+                        type="file"
+                        ref={inputFileRef}
+                        onChange={importarBackupJSON}
+                        accept=".json"
+                        className="hidden"
+                    />
+
                     {/* NOTIFICACIÓN TOAST */}
                     {notificacion && (
                         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl border backdrop-blur-md transition-all ${
@@ -917,7 +1006,7 @@
                                         }}
                                         className="w-1/2 bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-extrabold text-xs transition"
                                     >
-                                        Sí, Eliminar
+                                        Sí, Confirmar
                                     </button>
                                 </div>
                             </div>
@@ -938,6 +1027,12 @@
                             <div className="flex items-center gap-1.5">
                                 <button onClick={() => setOcultarSaldos(!ocultarSaldos)} title="Ocultar/Mostrar saldos" className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">
                                     {ocultarSaldos ? '👁️‍🗨️' : '👁️'}
+                                </button>
+                                <button onClick={exportarBackupJSON} title="Exportar Backup JSON" className="bg-neutral-900 hover:bg-neutral-800 text-emerald-400 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                                    💾 <span className="hidden sm:inline text-[11px]">Backup</span>
+                                </button>
+                                <button onClick={() => inputFileRef.current && inputFileRef.current.click()} title="Importar Backup JSON" className="bg-neutral-900 hover:bg-neutral-800 text-amber-400 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                                    📥 <span className="hidden sm:inline text-[11px]">Cargar</span>
                                 </button>
                                 <button onClick={bloquearSesion} title="Bloquear sesión" className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">
                                     🔒
@@ -1003,6 +1098,37 @@
                         {/* INICIO */}
                         {rubroActivo === 'inicio' && (
                             <div className="space-y-4">
+                                
+                                {/* BLOQUE DE ALERTAS DE VENCIMIENTO SI EXISTEN COMPROMISOS PRÓXIMOS */}
+                                {proximosVencimientos.length > 0 && (
+                                    <div className="bg-amber-950/30 border border-amber-500/40 p-4 rounded-2xl space-y-2">
+                                        <div className="flex items-center gap-2 text-amber-400 font-extrabold text-xs uppercase tracking-wider">
+                                            <span>⚠️ Próximos Vencimientos Pendientes (≤ 3 Días)</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                                            {proximosVencimientos.map(item => (
+                                                <div key={item.id} className="bg-black/60 border border-neutral-800 p-2.5 rounded-xl flex justify-between items-center text-xs">
+                                                    <div>
+                                                        <div className="font-bold text-white flex items-center gap-1.5">
+                                                            <span className={item.tipoItem === 'deuda' ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                                                                {item.tipoItem === 'deuda' ? '🔴 Por Pagar:' : '🟢 Por Cobrar:'}
+                                                            </span>
+                                                            {item.entidad || item.deudor}
+                                                        </div>
+                                                        <div className="text-[10px] text-neutral-400">{item.concepto}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="font-black text-white">{formatearMoneda(item.pendiente, 'COP')}</div>
+                                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md border ${item.alerta.clase}`}>
+                                                            {item.alerta.texto}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="bg-gradient-to-br from-neutral-900 via-neutral-900 to-emerald-950/40 border border-emerald-500/30 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
                                     <div className="flex justify-between items-start">
                                         <div>
@@ -1132,7 +1258,7 @@
                             </div>
                         )}
 
-                        {/* TRADES & INVERSIONES */}
+                        {/* TRADES & INVERSIONES CON MÉTRICAS AVANZADAS */}
                         {rubroActivo === 'inversiones' && (
                             <div className="space-y-4">
                                 <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1157,10 +1283,36 @@
                                     </div>
                                 </div>
 
+                                {/* TARJETAS DE MÉTRICAS AVANZADAS DE TRADING */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center">
+                                        <div className="text-[10px] font-bold text-neutral-400 uppercase">Win Rate (%)</div>
+                                        <div className="text-xl font-black text-emerald-400 mt-1">{metricasTrading.winRate}%</div>
+                                        <div className="text-[9px] text-neutral-500 mt-0.5">{metricasTrading.gainsCount} Gain / {metricasTrading.lossesCount} Loss</div>
+                                    </div>
+                                    <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center">
+                                        <div className="text-[10px] font-bold text-neutral-400 uppercase">Ratio R:R Avg</div>
+                                        <div className="text-xl font-black text-amber-400 mt-1">1:{metricasTrading.ratioRR}</div>
+                                        <div className="text-[9px] text-neutral-500 mt-0.5">Riesgo / Beneficio</div>
+                                    </div>
+                                    <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center">
+                                        <div className="text-[10px] font-bold text-neutral-400 uppercase">Prom. Gain / Loss</div>
+                                        <div className="text-xs font-bold text-emerald-400 mt-1">+{formatearMoneda(metricasTrading.avgGain, 'USD')}</div>
+                                        <div className="text-xs font-bold text-red-500 mt-0.5">-{formatearMoneda(metricasTrading.avgLoss, 'USD')}</div>
+                                    </div>
+                                    <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center">
+                                        <div className="text-[10px] font-bold text-neutral-400 uppercase">P&L Neto Activo</div>
+                                        <div className={`text-xl font-black mt-1 ${metricasTrading.pnlNetoUSD >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
+                                            {metricasTrading.pnlNetoUSD >= 0 ? '+' : ''}{formatearMoneda(metricasTrading.pnlNetoUSD, 'USD')}
+                                        </div>
+                                        <div className="text-[9px] text-neutral-500 mt-0.5">{metricasTrading.totalTrades} Trades Activos</div>
+                                    </div>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-3">
                                         <div className="flex justify-between items-center">
-                                            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Bitácora Activa (P&L Neto: <span className={pnlNetoUSD >= 0 ? 'text-emerald-400 font-extrabold' : 'text-red-500 font-extrabold'}>{pnlNetoUSD >= 0 ? '+' : ''}{formatearMoneda(pnlNetoUSD, 'USD')}</span>)</h3>
+                                            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Bitácora Activa</h3>
                                         </div>
 
                                         {(!datos.trades || datos.trades.filter(t => !t.cerrado).length === 0) ? (
@@ -1383,28 +1535,43 @@
                             </div>
                         )}
 
-                        {/* HISTORIAL */}
+                        {/* HISTORIAL CON FILTRO DE CUENTA ADICIONAL */}
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-4">
-                                <div className="flex flex-col sm:flex-row gap-2 justify-between items-center bg-neutral-900 border border-neutral-800 p-3 rounded-2xl">
+                                <div className="flex flex-col md:flex-row gap-2 justify-between items-center bg-neutral-900 border border-neutral-800 p-3 rounded-2xl">
                                     <input
                                         type="text"
-                                        placeholder="🔍 Buscar por concepto o cuenta..."
+                                        placeholder="🔍 Buscar por concepto o detalle..."
                                         value={busquedaMov}
                                         onChange={e => setBusquedaMov(e.target.value)}
-                                        className="w-full sm:w-1/2 bg-black border border-neutral-800 text-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                                        className="w-full md:w-1/3 bg-black border border-neutral-800 text-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
                                     />
-                                    <div className="flex w-full sm:w-auto gap-2">
+                                    
+                                    <div className="flex flex-wrap w-full md:w-auto gap-2">
+                                        {/* FILTRO POR CUENTA */}
+                                        <select
+                                            value={filtroCuentaMov}
+                                            onChange={e => setFiltroCuentaMov(e.target.value)}
+                                            className="bg-black border border-neutral-800 text-emerald-400 text-xs font-bold rounded-xl px-3 py-2 focus:outline-none flex-1 md:flex-none"
+                                        >
+                                            <option value="todas">💳 Todas las Cuentas</option>
+                                            {listaCuentas.map(c => (
+                                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                                            ))}
+                                        </select>
+
+                                        {/* FILTRO POR PERÍODO FECHA */}
                                         <select
                                             value={filtroFechaMov}
                                             onChange={e => setFiltroFechaMov(e.target.value)}
-                                            className="bg-black border border-neutral-800 text-white text-xs font-bold rounded-xl px-3 py-2 focus:outline-none"
+                                            className="bg-black border border-neutral-800 text-white text-xs font-bold rounded-xl px-3 py-2 focus:outline-none flex-1 md:flex-none"
                                         >
                                             <option value="todos">🗓️ Todo el Historial</option>
                                             <option value="mes_actual">🗓️ Mes Actual</option>
                                             <option value="mes_anterior">🗓️ Mes Anterior</option>
                                             <option value="ano_actual">🗓️ Año Actual</option>
                                         </select>
+
                                         <button onClick={exportarCSV} className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-bold transition">
                                             📥 CSV
                                         </button>
@@ -1413,7 +1580,7 @@
 
                                 <div className="space-y-2">
                                     {movimientosFiltrados.length === 0 ? (
-                                        <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin movimientos que coincidan con la búsqueda.</div>
+                                        <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin movimientos que coincidan con los filtros seleccionados.</div>
                                     ) : (
                                         movimientosFiltrados.map(m => {
                                             const c = listaCuentas.find(cuenta => cuenta.id === m.cuentaId);
