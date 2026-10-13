@@ -23,7 +23,7 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen pb-36 md:pb-6 select-none">
+<body class="bg-black text-neutral-100 min-h-screen pb-44 md:pb-6 select-none">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -790,7 +790,7 @@
                     });
                 } else if (filtroFechaMov === 'mes_anterior') {
                     const mesAnt = ahora.getMonth() === 0 ? 11 : ahora.getMonth() - 1;
-                    const anoAnt = ahora.getMonth() === 0 ? me.getFullYear() - 1 : ahora.getFullYear();
+                    const anoAnt = ahora.getMonth() === 0 ? ahora.getFullYear() - 1 : ahora.getFullYear();
                     lista = lista.filter(m => {
                         const d = new Date(m.fechaHora);
                         return d.getMonth() === mesAnt && d.getFullYear() === anoAnt;
@@ -798,7 +798,7 @@
                 } else if (filtroFechaMov === 'ano_actual') {
                     lista = lista.filter(m => {
                         const d = new Date(m.fechaHora);
-                        return d.getFullYear() === me.getFullYear();
+                        return d.getFullYear() === ahora.getFullYear();
                     });
                 }
 
@@ -965,14 +965,14 @@
                     {/* BOTÓN FLOTANTE MÓVIL (TRANSLÚCIDO) */}
                     <button
                         onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }}
-                        className="md:hidden fixed bottom-16 right-4 z-50 bg-emerald-500/80 hover:bg-emerald-400 text-neutral-950 p-3.5 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 transition active:scale-95 flex items-center justify-center text-xl font-black"
+                        className="md:hidden fixed bottom-24 right-4 z-50 bg-emerald-500/80 hover:bg-emerald-400 text-neutral-950 p-3.5 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 transition active:scale-95 flex items-center justify-center text-xl font-black"
                         title="Agregar Movimiento"
                     >
                         ➕
                     </button>
 
-                    {/* BARRA INFERIOR FIJA PARA CELULAR */}
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 py-1.5 grid grid-cols-7 gap-0.5 z-40">
+                    {/* BARRA INFERIOR FIJA PARA CELULAR (PROTEGIDA SAFE AREA & GRID-COLS-7 FIJO) */}
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] grid grid-cols-7 gap-0.5 z-40">
                         {rubros.map(r => (
                             <button
                                 key={r.id}
@@ -1808,7 +1808,7 @@
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400">Cuenta de Ingreso</label>
-                                    <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold">
+                                    <select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1 font-bold">
                                         {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre} ({formatearMoneda(c.saldo, c.moneda || 'COP')})</option>)}
                                     </select>
                                 </div>
