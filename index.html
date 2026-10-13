@@ -256,7 +256,6 @@
             const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formPorCobrar, setFormPorCobrar] = useState({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaAcordada: '', fechaHora: obtenerFechaHoraActual() });
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
-            const [nombreCierre, setNombreCierre] = useState('');
 
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
             const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
@@ -267,6 +266,10 @@
 
             const [formPrediccion, setFormPrediccion] = useState({ id: null, activo: 'BTC/USDT', direccion: 'sube', montoInvertidoUSD: '', resultado: 'pendiente', montoRetornadoUSD: '', cuentaId: 'c6', fechaHora: obtenerFechaHoraActual() });
             const [formCierrePred, setFormCierrePred] = useState({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
+
+            const [formAnularCierre, setFormAnularCierre] = useState({ id: '', tipo: '', razon: '' });
+            const [formEditCierre, setFormEditCierre] = useState({ id: '', tipo: '', nombre: '', tasaTRM: '' });
+            const [formResolverPred, setFormResolverPred] = useState({ id: '', montoRetornadoUSD: '' });
 
             const metricasScalping = useMemo(() => {
                 const tradesActivos = (datos?.trades || []).filter(t => !t.cerrado);
@@ -331,6 +334,85 @@
                 }
             };
 
+            const abrirAnularCierre = (id, tipo) => {
+                setFormAnularCierre({ id, tipo, razon: '' });
+                setModalVisible('anularCierre');
+            };
+
+            const procesarAnulacionCierre = (e) => {
+                e.preventDefault();
+                const { id, tipo, razon } = formAnularCierre;
+                if (!razon.trim()) return mostrarNotificacion("Debes ingresar un motivo", 'error');
+
+                if (tipo === 'scalping') {
+                    const c = (datos.cierresInversion || []).find(x => x.id === id);
+                    if (!c) return;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
+                    const nuevoMov = { id: 'm_dcinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Scalping: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c5', categoria: 'Ajuste' };
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: datos.cierresInversion.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                } else if (tipo === 'predicciones') {
+                    const c = (datos.cierresPredicciones || []).find(x => x.id === id);
+                    if (!c) return;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
+                    const nuevoMov = { id: 'm_dcpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Predicciones: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c6', categoria: 'Ajuste' };
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: datos.cierresPredicciones.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                } else if (tipo === 'holding') {
+                    const c = (datos.cierresHolding || []).find(x => x.id === id);
+                    if (!c) return;
+                    const nuevoMov = { id: 'm_dchold_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Holding: ${c.activo} (${razon})`, monto: c.gananciaNetaCOP, tipo: 'egreso', cuentaId: 'c1', categoria: 'Ajuste' };
+                    actualizarYGuardar({ ...datos, cierresHolding: datos.cierresHolding.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                }
+                
+                setModalVisible(null);
+                mostrarNotificacion("🗑️ Liquidación anulada con éxito");
+            };
+
+            const abrirEditarCierre = (c, tipo) => {
+                setFormEditCierre({ id: c.id, tipo, nombre: c.nombre || c.activo, tasaTRM: c.tasaTRM || c.trmSalida });
+                setModalVisible('editarCierre');
+            };
+
+            const procesarEdicionCierre = (e) => {
+                e.preventDefault();
+                const { id, tipo, nombre, tasaTRM } = formEditCierre;
+                const trmNum = parseFloat(tasaTRM);
+                if (isNaN(trmNum) || trmNum <= 0) return mostrarNotificacion("TRM inválida", 'error');
+
+                if (tipo === 'scalping') {
+                    const c = (datos.cierresInversion || []).find(x => x.id === id);
+                    if(!c) return;
+                    const nuevoTotalCOP = c.gananciaUSD * trmNum;
+                    const deltaCOP = nuevoTotalCOP - c.totalCOP;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
+                    const cierresAct = datos.cierresInversion.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
+                    let movsAct = [...(datos.movimientos || [])];
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Scalp: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c5' });
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: cierresAct, movimientos: movsAct });
+                } else if (tipo === 'predicciones') {
+                    const c = (datos.cierresPredicciones || []).find(x => x.id === id);
+                    if(!c) return;
+                    const nuevoTotalCOP = c.gananciaUSD * trmNum;
+                    const deltaCOP = nuevoTotalCOP - c.totalCOP;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
+                    const cierresAct = datos.cierresPredicciones.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
+                    let movsAct = [...(datos.movimientos || [])];
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Pred: ${nombre} (TRM ajustada)`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c6' });
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: cierresAct, movimientos: movsAct });
+                } else if (tipo === 'holding') {
+                    const c = (datos.cierresHolding || []).find(x => x.id === id);
+                    if(!c) return;
+                    const montoUSDSalida = (c.costoCOP / c.trmEntrada) + c.gananciaUSD;
+                    const nuevoRetornadoCOP = montoUSDSalida * trmNum;
+                    const nuevaGananciaNetaCOP = nuevoRetornadoCOP - c.costoCOP;
+                    const nuevoPorcentaje = (nuevaGananciaNetaCOP / c.costoCOP) * 100;
+                    const cierresAct = datos.cierresHolding.map(x => x.id === id ? { ...x, activo: nombre, trmSalida: trmNum, gananciaNetaCOP: nuevaGananciaNetaCOP, porcentajeRealCOP: nuevoPorcentaje } : x);
+                    actualizarYGuardar({ ...datos, cierresHolding: cierresAct });
+                }
+
+                setModalVisible(null);
+                mostrarNotificacion("✅ Cierre actualizado y saldos corregidos");
+            };
+
             const guardarTrade = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formTrade.montoUSD);
@@ -389,19 +471,6 @@
                 setFormCierreInv({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
                 setModalVisible(null);
                 mostrarNotificacion("🔒 Cierre procesado");
-            };
-
-            const eliminarCierreInversion = (id) => {
-                const razon = prompt("Motivo para eliminar esta liquidación:");
-                if (razon === null) return;
-                const c = (datos.cierresInversion || []).find(x => x.id === id);
-                if (!c) return;
-
-                const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
-                const nuevoMov = { id: 'm_dcinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Scalping: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c5', categoria: 'Ajuste' };
-
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: datos.cierresInversion.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                mostrarNotificacion("🗑️ Liquidación eliminada");
             };
 
             const transferirUtilidadBinance = (e) => {
@@ -535,6 +604,19 @@
                 mostrarNotificacion(resultado === 'acertada' ? "🎯 Predicción Acertada" : "❌ Predicción Fallida");
             };
 
+            const abrirResolverPrediccion = (id) => {
+                setFormResolverPred({ id, montoRetornadoUSD: '' });
+                setModalVisible('resolverPrediccion');
+            };
+
+            const procesarResolverPrediccion = (e) => {
+                e.preventDefault();
+                if(formResolverPred.montoRetornadoUSD) {
+                    resolverPrediccion(formResolverPred.id, 'acertada', formResolverPred.montoRetornadoUSD);
+                }
+                setModalVisible(null);
+            };
+
             const eliminarPrediccion = (id) => {
                 pedirConfirmacion({
                     titulo: "🗑️ Eliminar Predicción",
@@ -571,19 +653,6 @@
                 setFormCierrePred({ tipo: 'semanal', nombre: '', tasaTRM: '3950' });
                 setModalVisible(null);
                 mostrarNotificacion("🔒 Cierre procesado");
-            };
-
-            const eliminarCierrePred = (id) => {
-                const razon = prompt("Motivo para eliminar esta liquidación:");
-                if (razon === null) return;
-                const c = (datos.cierresPredicciones || []).find(x => x.id === id);
-                if (!c) return;
-
-                const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
-                const nuevoMov = { id: 'm_dcpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Pred: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c6', categoria: 'Ajuste' };
-
-                actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: datos.cierresPredicciones.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                mostrarNotificacion("🗑️ Liquidación eliminada");
             };
 
             const guardarMovimiento = (e) => {
@@ -1048,9 +1117,12 @@
                                                                 <div className="font-bold text-amber-400">{c.nombre}</div>
                                                                 <div className="text-[10px] text-neutral-500">TRM: ${c.tasaTRM} • {formatearFechaHora(c.fechaHora)}</div>
                                                             </div>
-                                                            <div className="text-right">
+                                                            <div className="text-right flex flex-col items-end gap-1">
                                                                 <div className="font-black text-emerald-400">+{formatearMoneda(c.totalCOP, 'COP')}</div>
-                                                                <button onClick={() => eliminarCierreInversion(c.id)} className="text-[10px] text-red-500 underline">Anular Liquidación</button>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'scalping')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'scalping')} className="text-[10px] text-red-500 hover:text-red-400 underline">Anular</button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))
@@ -1102,9 +1174,15 @@
                                                     <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin historial.</div>
                                                 ) : (
                                                     datos.cierresHolding.map(c => (
-                                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-1 text-xs">
+                                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-2 text-xs">
                                                             <div className="flex justify-between font-bold text-white"><span>{c.activo} ➔ {c.cuentaDestinoNombre}</span><span className={c.gananciaNetaCOP >= 0 ? 'text-emerald-400' : 'text-red-500'}>{c.gananciaNetaCOP >= 0 ? '+' : ''}{formatearMoneda(c.gananciaNetaCOP, 'COP')} ({c.porcentajeRealCOP.toFixed(1)}%)</span></div>
-                                                            <div className="text-[10px] text-neutral-400">TRM Ent: ${c.trmEntrada} • TRM Sal: ${c.trmSalida} | {formatearFechaHora(c.fechaHoraCierre)}</div>
+                                                            <div className="flex justify-between items-end border-t border-neutral-800 pt-1.5">
+                                                                <div className="text-[10px] text-neutral-400">TRM Ent: ${c.trmEntrada} • TRM Sal: ${c.trmSalida}<br/>{formatearFechaHora(c.fechaHoraCierre)}</div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'holding')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'holding')} className="text-[10px] text-red-500 hover:text-red-400 underline">Borrar Historial</button>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     ))
                                                 )}
@@ -1153,7 +1231,7 @@
                                                                     {!esPendiente && <div className={`text-sm font-black ${net >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{net >= 0 ? '+' : ''}{formatearMoneda(net, 'USD')}</div>}
                                                                     {esPendiente && (
                                                                         <div className="flex gap-1.5">
-                                                                            <button onClick={() => { const ret = prompt("USD Retornado:"); if(ret) resolverPrediccion(p.id, 'acertada', ret); }} className="bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/40">✓</button>
+                                                                            <button onClick={() => abrirResolverPrediccion(p.id)} className="bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/40">✓</button>
                                                                             <button onClick={() => resolverPrediccion(p.id, 'fallida')} className="bg-red-500/20 text-red-400 px-3 py-1.5 rounded-xl text-xs font-bold border border-red-500/40">✕</button>
                                                                         </div>
                                                                     )}
@@ -1176,9 +1254,12 @@
                                                                 <div className="font-bold text-purple-400">{c.nombre}</div>
                                                                 <div className="text-[10px] text-neutral-500">TRM: ${c.tasaTRM} • {formatearFechaHora(c.fechaHora)}</div>
                                                             </div>
-                                                            <div className="text-right">
+                                                            <div className="text-right flex flex-col items-end gap-1">
                                                                 <div className="font-black text-emerald-400">+{formatearMoneda(c.totalCOP, 'COP')}</div>
-                                                                <button onClick={() => eliminarCierrePred(c.id)} className="text-[10px] text-red-500 underline">Anular</button>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'predicciones')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'predicciones')} className="text-[10px] text-red-500 hover:text-red-400 underline">Anular</button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))
@@ -1324,6 +1405,40 @@
                             </div>
                         )}
                     </main>
+
+                    {modalVisible === 'anularCierre' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={procesarAnulacionCierre} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-red-500 text-lg">⚠️ Anular Liquidación</h3>
+                                <p className="text-xs text-neutral-400">Esta acción revertirá los saldos de esta liquidación y registrará el movimiento en el historial para trazabilidad.</p>
+                                <div><label className="text-xs text-neutral-400 font-bold">Motivo de Anulación</label><input type="text" autoFocus required placeholder="Ej: Prueba, error de TRM, ajuste manual..." value={formAnularCierre.razon} onChange={e => setFormAnularCierre({ ...formAnularCierre, razon: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-neutral-800 text-neutral-300 py-3 rounded-xl font-bold border border-neutral-700">Cancelar</button><button type="submit" className="w-1/2 bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-extrabold transition">Anular Cierre</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'editarCierre' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={procesarEdicionCierre} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-white text-lg">✏️ Editar Cierre de {formEditCierre.tipo === 'holding' ? 'Holding' : 'Inversión'}</h3>
+                                <div><label className="text-xs text-neutral-400">Nombre / Identificador</label><input type="text" required value={formEditCierre.nombre} onChange={e => setFormEditCierre({ ...formEditCierre, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">TRM Aplicada</label><input type="number" step="any" required value={formEditCierre.tasaTRM} onChange={e => setFormEditCierre({ ...formEditCierre, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-black text-xl rounded-xl p-3 mt-1" /></div>
+                                <p className="text-[10px] text-neutral-500">Al modificar la TRM, el sistema ajustará automáticamente el saldo COP disponible y registrará un movimiento de calibración.</p>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar Ajuste</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'resolverPrediccion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={procesarResolverPrediccion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-white text-lg">🎯 Predicción Acertada</h3>
+                                <p className="text-xs text-neutral-400">Ingresa el monto total (Inversión + Ganancia) que te retornó el broker en USD.</p>
+                                <div><label className="text-xs text-emerald-400 font-bold">USD Retornado</label><input type="number" step="any" autoFocus required value={formResolverPred.montoRetornadoUSD} onChange={e => setFormResolverPred({ ...formResolverPred, montoRetornadoUSD: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-emerald-400 font-black text-xl rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar Acierto</button></div>
+                            </form>
+                        </div>
+                    )}
 
                     {modalVisible === 'trade' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
