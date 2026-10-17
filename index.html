@@ -18,7 +18,6 @@
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
         .safe-bottom-margin-btn { bottom: max(96px, calc(80px + env(safe-area-inset-bottom))); }
     </style>
-    <!-- BLOQUEO ANTI-MIRONES BÁSICO -->
     <script>
         document.addEventListener('contextmenu', event => event.preventDefault());
         document.onkeydown = function(e) {
@@ -34,7 +33,6 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // PON TUS LLAVES DEL NUEVO PROYECTO AQUÍ
         const SUPABASE_URL = "https://hvjlkjyyyjqebibtffkl.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_ags0yzMs4NRe4nBGbIGN-g_YiFX_r9_";
 
@@ -52,8 +50,8 @@
             { id: "c2", nombre: "Nequi", tipo: "Billetera Digital", saldo: 0, moneda: "COP", activa: true },
             { id: "c3", nombre: "Bancolombia", tipo: "Banco", saldo: 0, moneda: "COP", activa: true },
             { id: "c4", nombre: "Efectivo", tipo: "Efectivo", saldo: 0, moneda: "COP", activa: true },
-            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 500, saldoCOP: 0, moneda: "USD", activa: true },
-            { id: "c6", nombre: "Fondo Predicciones", tipo: "Inversión", saldo: 100, saldoCOP: 0, moneda: "USD", activa: true }
+            { id: "c5", nombre: "Binance", tipo: "Inversión", saldo: 0, saldoCOP: 0, moneda: "USD", activa: true },
+            { id: "c6", nombre: "Fondo Predicciones", tipo: "Inversión", saldo: 0, saldoCOP: 0, moneda: "USD", activa: true }
         ];
 
         const ESTADO_INICIAL = {
@@ -71,7 +69,7 @@
 
             // ESTADOS GLOBALES
             const [datos, setDatos] = useState(ESTADO_INICIAL);
-            const [precioUSDT, setPrecioUSDT] = useState(4000); // Default, se actualiza con API
+            const [precioUSDT, setPrecioUSDT] = useState(4000); 
             const [ocultarSaldos, setOcultarSaldos] = useState(false);
             const [menuAdminAbierto, setMenuAdminAbierto] = useState(false);
             const [rubroActivo, setRubroActivo] = useState('inicio');
@@ -81,7 +79,7 @@
             const [modalVisible, setModalVisible] = useState(null);
             const [confirmacion, setConfirmacion] = useState(null);
             const [notificacion, setNotificacion] = useState(null);
-            const [historialExp, setHistorialExp] = useState({}); // Para expandir sub-tablas de deudas/cobros
+            const [historialExp, setHistorialExp] = useState({});
 
             const [busquedaMov, setBusquedaMov] = useState('');
             const [filtroCuentaMov, setFiltroCuentaMov] = useState('todas');
@@ -89,17 +87,17 @@
             const clienteSupabase = useRef(null);
             const inputFileRef = useRef(null);
 
-            // 1. API BINANCE EN VIVO (USDT/COP)
+            // API BINANCE
             useEffect(() => {
                 const fetchUSDT = async () => {
                     try {
                         const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=USDTCOP');
                         const data = await res.json();
                         if (data && data.price) setPrecioUSDT(parseFloat(data.price));
-                    } catch (e) { console.warn("Usando precio USDT fallback"); }
+                    } catch (e) { console.warn("Error api Binance"); }
                 };
                 fetchUSDT();
-                const intervalo = setInterval(fetchUSDT, 30000); // Actualiza cada 30 segundos
+                const intervalo = setInterval(fetchUSDT, 30000); 
                 return () => clearInterval(intervalo);
             }, []);
 
@@ -108,10 +106,10 @@
             const cambiarRubro = (nuevoRubro) => { setBusquedaMov(''); setRubroActivo(nuevoRubro); };
             const toggleHistorial = (id) => setHistorialExp(prev => ({ ...prev, [id]: !prev[id] }));
 
-            // 2. SUPABASE AUTH & DATOS
+            // SUPABASE INIT
             useEffect(() => {
                 try {
-                    if (window.supabase && SUPABASE_URL !== "TU_NUEVA_URL_AQUI") {
+                    if (window.supabase && SUPABASE_URL) {
                         clienteSupabase.current = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                         clienteSupabase.current.auth.getSession().then(({ data: { session } }) => {
                             setSesion(session); setCargandoAuth(false);
@@ -127,7 +125,7 @@
 
             const manejarLogin = async (e) => {
                 e.preventDefault();
-                if (!clienteSupabase.current) return setErrorAuth("Faltan llaves de Supabase");
+                if (!clienteSupabase.current) return setErrorAuth("Faltan llaves de Supabase en el código");
                 setErrorAuth(''); setCargandoAuth(true);
                 const { error } = await clienteSupabase.current.auth.signInWithPassword({ email: emailLogin, password: passLogin });
                 if (error) { setErrorAuth('❌ Correo o contraseña incorrectos'); setCargandoAuth(false); }
@@ -166,9 +164,34 @@
                 return new Date(cadenaFecha).toLocaleString('es-CO', { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
             };
 
+            const exportarBackupJSON = () => {
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(datos, null, 2))}`;
+                const a = document.createElement('a');
+                a.href = jsonString; a.download = `Mis_Finanzas_Jose_Backup_${obtenerFechaHoy()}.json`; a.click();
+                mostrarNotificacion("💾 Backup exportado");
+            };
+
+            const importarBackupJSON = (e) => {
+                const fr = new FileReader();
+                if (e.target.files && e.target.files[0]) {
+                    fr.readAsText(e.target.files[0], "UTF-8");
+                    fr.onload = (event) => {
+                        try {
+                            const parsed = JSON.parse(event.target.result);
+                            if (parsed && typeof parsed === 'object') {
+                                pedirConfirmacion({
+                                    titulo: "📥 Importar Copia", mensaje: "Reemplazará los datos actuales en la nube. ¿Continuar?",
+                                    accion: () => { actualizarYGuardar(parsed); mostrarNotificacion("✅ Datos restaurados"); }
+                                });
+                            }
+                        } catch (err) { mostrarNotificacion("Archivo inválido", 'error'); }
+                    };
+                }
+            };
+
             const listaCuentas = useMemo(() => (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS, [datos]);
 
-            // 3. CÁLCULO PATRIMONIAL PROFESIONAL (CONTABILIDAD)
+            // CÁLCULOS
             const totales = useMemo(() => {
                 const liquidezBrutaCOP = listaCuentas.filter(c => c.moneda === 'COP').reduce((acc, c) => acc + c.saldo, 0);
                 const totalDestinado = (datos?.destinaciones || []).reduce((acc, d) => acc + (d.monto || 0), 0);
@@ -179,16 +202,49 @@
                 const holdingActivoUSD = (datos?.holdings || []).filter(h => !h.cerrado).reduce((acc, h) => acc + (parseFloat(h.montoUSD) || 0), 0);
                 
                 const totalInversionesUSD = capScalpingUSD + capPredUSD + holdingActivoUSD;
-                const totalInversionesCOP = totalInversionesUSD * precioUSDT; // CONVERSIÓN EN VIVO
+                const totalInversionesCOP = totalInversionesUSD * precioUSDT; 
 
                 const carteraActiva = (datos?.porCobrar || []).reduce((acc, r) => acc + Math.max(0, r.montoOriginal - ((r.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
                 const pasivosTotales = (datos?.deudas || []).reduce((acc, d) => acc + Math.max(0, d.montoOriginal - ((d.abonos || []).reduce((pAcc, p) => pAcc + p.monto, 0))), 0);
-
-                // ECUACIÓN PATRIMONIAL: (Liquidez + Destinaciones + Inversiones + Cartera) - Deudas
                 const patrimonioNetoCOP = liquidezBrutaCOP + totalInversionesCOP + carteraActiva - pasivosTotales;
 
                 return { liquidezBrutaCOP, liquidezLibreCOP, totalDestinado, capScalpingUSD, capPredUSD, holdingActivoUSD, totalInversionesUSD, totalInversionesCOP, carteraActiva, pasivosTotales, patrimonioNetoCOP };
             }, [datos, listaCuentas, precioUSDT]);
+
+            const metricasScalping = useMemo(() => {
+                const tradesActivos = (datos?.trades || []).filter(t => !t.cerrado);
+                const gains = tradesActivos.filter(t => t.resultado === 'gain');
+                const losses = tradesActivos.filter(t => t.resultado === 'loss');
+                const totalGainsUSD = gains.reduce((acc, t) => acc + (parseFloat(t.montoUSD) || 0), 0);
+                const totalLossesUSD = losses.reduce((acc, t) => acc + (parseFloat(t.montoUSD) || 0), 0);
+                const pnlNetoUSD = totalGainsUSD - totalLossesUSD;
+                const winRate = tradesActivos.length > 0 ? ((gains.length / tradesActivos.length) * 100).toFixed(1) : '0.0';
+                const avgGain = gains.length > 0 ? totalGainsUSD / gains.length : 0;
+                const avgLoss = losses.length > 0 ? totalLossesUSD / losses.length : 0;
+                const ratioRR = avgLoss > 0 ? (avgGain / avgLoss).toFixed(2) : (avgGain > 0 ? '∞' : '0.00');
+                return { totalTrades: tradesActivos.length, winRate, avgGain, avgLoss, ratioRR, pnlNetoUSD };
+            }, [datos.trades]);
+
+            const metricasHolding = useMemo(() => {
+                const hCerrados = datos?.cierresHolding || [];
+                const ganancias = hCerrados.filter(h => h.gananciaNetaCOP > 0);
+                const winRate = hCerrados.length > 0 ? ((ganancias.length / hCerrados.length) * 100).toFixed(1) : '0.0';
+                const pnlTotalCOP = hCerrados.reduce((acc, h) => acc + (h.gananciaNetaCOP || 0), 0);
+                const pnlTotalUSD = hCerrados.reduce((acc, h) => acc + (h.gananciaUSD || 0), 0);
+                return { winRate, pnlTotalCOP, pnlTotalUSD };
+            }, [datos.cierresHolding]);
+
+            const metricasPredicciones = useMemo(() => {
+                const predsActivas = (datos?.predicciones || []).filter(p => !p.cerrado);
+                const resueltas = predsActivas.filter(p => p.resultado !== 'pendiente');
+                const aciertos = resueltas.filter(p => p.resultado === 'acertada');
+                const winRate = resueltas.length > 0 ? ((aciertos.length / resueltas.length) * 100).toFixed(1) : '0.0';
+                const pnlNetoUSD = resueltas.reduce((acc, p) => {
+                    if (p.resultado === 'acertada') return acc + (parseFloat(p.montoRetornadoUSD || 0) - parseFloat(p.montoInvertidoUSD || 0));
+                    return acc - parseFloat(p.montoInvertidoUSD || 0);
+                }, 0);
+                return { total: predsActivas.length, winRate, aciertosCount: aciertos.length, fallidasCount: resueltas.length - aciertos.length, pnlNetoUSD };
+            }, [datos.predicciones]);
 
             // ESTADOS FORMULARIOS
             const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
@@ -196,11 +252,23 @@
             const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: 'c3', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formPorCobrar, setFormPorCobrar] = useState({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() });
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c3', monto: '', fechaHora: obtenerFechaHoraActual() });
-            // ... (Mantenemos los forms de trades, predicciones y holdings igual)
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
             const [formEjecutarDestino, setFormEjecutarDestino] = useState({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
+            const [formTransfer, setFormTransfer] = useState({ cuentaOrigenId: 'c3', cuentaDestinoId: 'c2', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
+            const [formAjusteSaldo, setFormAjusteSaldo] = useState({ cuentaId: 'c1', nuevoSaldo: '', nota: '', fechaHora: obtenerFechaHoraActual() });
+            
+            const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
+            const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT });
+            const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
+            const [formHoldingEntrada, setFormHoldingEntrada] = useState({ id: null, activo: 'BTC', montoUSD: '', trmEntrada: precioUSDT, fechaHora: obtenerFechaHoraActual() });
+            const [formHoldingSalida, setFormHoldingSalida] = useState({ holdingId: '', montoUSDSalida: '', trmSalida: precioUSDT, cuentaDestinoId: 'c3', fechaHora: obtenerFechaHoraActual() });
+            const [formPrediccion, setFormPrediccion] = useState({ id: null, activo: 'BTC/USDT', direccion: 'sube', montoInvertidoUSD: '', resultado: 'pendiente', montoRetornadoUSD: '', cuentaId: 'c6', fechaHora: obtenerFechaHoraActual() });
+            const [formCierrePred, setFormCierrePred] = useState({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT });
+            const [formAnularCierre, setFormAnularCierre] = useState({ id: '', tipo: '', razon: '' });
+            const [formEditCierre, setFormEditCierre] = useState({ id: '', tipo: '', nombre: '', tasaTRM: '' });
+            const [formResolverPred, setFormResolverPred] = useState({ id: '', montoRetornadoUSD: '' });
 
-            // FUNCIONES DE DEUDAS (MODO FLUJO DE CAJA)
+            // FUNCIONES DEUDAS Y CARTERA
             const guardarDeuda = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formDeuda.montoOriginal) || 0;
@@ -218,21 +286,15 @@
 
                 const cuentaUsada = listaCuentas.find(c => c.id === formAbonoDeuda.cuentaId);
                 const deudaSel = (datos.deudas || []).find(d => d.id === formAbonoDeuda.deudaId);
-
-                // 1. Restar plata del banco
                 const cuentasAct = listaCuentas.map(c => c.id === formAbonoDeuda.cuentaId ? { ...c, saldo: c.saldo - monto } : c);
-                // 2. Sumar abono a la deuda
                 const deudasAct = (datos.deudas || []).map(d => d.id === formAbonoDeuda.deudaId ? { ...d, abonos: [...(d.abonos || []), { id: 'ab_' + Date.now(), monto, fechaHora: formAbonoDeuda.fechaHora, cuentaNombre: cuentaUsada.nombre }] } : d);
-                // 3. Crear el movimiento general (Egreso)
                 const nuevoMov = { id: 'm_ad_' + Date.now(), fechaHora: formAbonoDeuda.fechaHora, concepto: `Pago Deuda: ${deudaSel.entidad}`, monto, tipo: 'egreso', cuentaId: formAbonoDeuda.cuentaId, categoria: 'Abono a Deuda', moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, deudas: deudasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                setModalVisible(null); mostrarNotificacion("✅ Abono ejecutado y registrado");
+                setModalVisible(null); mostrarNotificacion("✅ Abono ejecutado");
             };
-
             const eliminarDeuda = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Deuda", mensaje: "¿Borrar este registro?", accion: () => { actualizarYGuardar({ ...datos, deudas: (datos.deudas || []).filter(d => d.id !== id) }); mostrarNotificacion("Eliminada"); } }); };
 
-            // FUNCIONES DE ME DEBEN (CARTERA)
             const guardarPorCobrar = (e) => {
                 e.preventDefault();
                 const orig = parseFloat(formPorCobrar.montoOriginal) || 0;
@@ -250,26 +312,20 @@
 
                 const cuentaDestino = listaCuentas.find(c => c.id === formAbonoCobro.cuentaId);
                 const cobroSel = (datos.porCobrar || []).find(r => r.id === formAbonoCobro.cobroId);
-
-                // 1. Sumar plata al banco
                 const cuentasAct = listaCuentas.map(c => c.id === formAbonoCobro.cuentaId ? { ...c, saldo: c.saldo + monto } : c);
-                // 2. Sumar abono a la cartera
                 const cobrosAct = (datos.porCobrar || []).map(r => r.id === formAbonoCobro.cobroId ? { ...r, abonos: [...(r.abonos || []), { id: 'rab_' + Date.now(), monto, fechaHora: formAbonoCobro.fechaHora, cuentaNombre: cuentaDestino.nombre }] } : r);
-                // 3. Crear el movimiento general (Ingreso)
                 const nuevoMov = { id: 'm_rc_' + Date.now(), fechaHora: formAbonoCobro.fechaHora, concepto: `Pago Recibido: ${cobroSel.deudor}`, monto, tipo: 'ingreso', cuentaId: formAbonoCobro.cuentaId, categoria: 'Cobro Recibido', moneda: 'COP' };
 
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, porCobrar: cobrosAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
-                setModalVisible(null); mostrarNotificacion("✅ Plata ingresada y registrada");
+                setModalVisible(null); mostrarNotificacion("✅ Plata ingresada");
             };
-
             const eliminarPorCobrar = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Préstamo", mensaje: "¿Borrar este registro?", accion: () => { actualizarYGuardar({ ...datos, porCobrar: (datos.porCobrar || []).filter(r => r.id !== id) }); mostrarNotificacion("Eliminado"); } }); };
 
-            // FUNCIONES GENERALES DE MOVIMIENTO
+            // FUNCIONES MOVIMIENTOS & CUENTAS
             const guardarMovimiento = (e) => {
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Monto inválido", 'error');
-
                 let cuentasAct = [...listaCuentas];
                 let movsAct = [...(datos.movimientos || [])];
                 
@@ -286,22 +342,282 @@
                     cuentasAct = cuentasAct.map(c => c.id === formMov.cuentaId ? { ...c, saldo: formMov.tipo === 'ingreso' ? c.saldo + montoNum : c.saldo - montoNum } : c);
                     movsAct = [{ ...formMov, id: 'm_' + Date.now(), monto: montoNum }, ...movsAct];
                 }
-
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: movsAct });
                 setModalVisible(null); mostrarNotificacion("✅ Movimiento guardado");
             };
-
             const eliminarMovimiento = (id) => {
-                pedirConfirmacion({
-                    titulo: "🗑️ Eliminar Movimiento", mensaje: "¿Revertir este registro?",
-                    accion: () => {
-                        const m = (datos.movimientos || []).find(x => x.id === id);
-                        if (!m) return;
-                        const cuentasAct = listaCuentas.map(c => c.id === m.cuentaId ? { ...c, saldo: m.tipo === 'ingreso' ? c.saldo - m.monto : c.saldo + m.monto } : c);
-                        actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: datos.movimientos.filter(x => x.id !== id) });
-                        mostrarNotificacion("Revertido");
-                    }
+                pedirConfirmacion({ titulo: "🗑️ Eliminar Movimiento", mensaje: "¿Revertir este registro?", accion: () => {
+                    const m = (datos.movimientos || []).find(x => x.id === id);
+                    if (!m) return;
+                    const cuentasAct = listaCuentas.map(c => c.id === m.cuentaId ? { ...c, saldo: m.tipo === 'ingreso' ? c.saldo - m.monto : c.saldo + m.monto } : c);
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: datos.movimientos.filter(x => x.id !== id) });
+                    mostrarNotificacion("Revertido");
+                }});
+            };
+            const realizarTransferencia = (e) => {
+                e.preventDefault();
+                const montoNum = parseFloat(formTransfer.monto);
+                if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (formTransfer.cuentaOrigenId === formTransfer.cuentaDestinoId) return mostrarNotificacion("Cuentas deben ser diferentes", 'error');
+                const origen = listaCuentas.find(c => c.id === formTransfer.cuentaOrigenId);
+                const destino = listaCuentas.find(c => c.id === formTransfer.cuentaDestinoId);
+                const cuentasAct = listaCuentas.map(c => {
+                    if (c.id === formTransfer.cuentaOrigenId) return { ...c, saldo: c.saldo - montoNum };
+                    if (c.id === formTransfer.cuentaDestinoId) return { ...c, saldo: c.saldo + montoNum };
+                    return c;
                 });
+                const nuevoMov = { id: 'm_tr_' + Date.now(), fechaHora: formTransfer.fechaHora, concepto: `⇄ ${formTransfer.concepto} (${origen?.nombre} ➔ ${destino?.nombre})`, monto: montoNum, tipo: 'transferencia', cuentaId: formTransfer.cuentaOrigenId, moneda: origen?.moneda || 'COP' };
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null); mostrarNotificacion("✅ Transferencia realizada");
+            };
+            const guardarAjusteSaldo = (e) => {
+                e.preventDefault();
+                const nuevo = parseFloat(formAjusteSaldo.nuevoSaldo);
+                if (isNaN(nuevo)) return mostrarNotificacion("Saldo inválido", 'error');
+                const cuenta = listaCuentas.find(c => c.id === formAjusteSaldo.cuentaId);
+                if (!cuenta) return;
+                const diff = nuevo - cuenta.saldo;
+                if (diff === 0) { setModalVisible(null); return; }
+                const cuentasAct = listaCuentas.map(c => c.id === formAjusteSaldo.cuentaId ? { ...c, saldo: nuevo } : c);
+                const nuevoMov = { id: 'm_aj_' + Date.now(), fechaHora: formAjusteSaldo.fechaHora, concepto: `⚙️ Ajuste: ${formAjusteSaldo.nota}`, monto: Math.abs(diff), tipo: diff > 0 ? 'ingreso' : 'egreso', cuentaId: formAjusteSaldo.cuentaId, moneda: cuenta.moneda };
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null); mostrarNotificacion("✅ Saldo calibrado");
+            };
+
+            // FUNCIONES DESTINACIONES
+            const guardarDestinacion = (e) => {
+                e.preventDefault();
+                const monto = parseFloat(formDestino.monto) || 0;
+                let lista = [...(datos.destinaciones || [])];
+                if (formDestino.id) lista = lista.map(d => d.id === formDestino.id ? { ...d, nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion } : d);
+                else lista.push({ id: 'dest_' + Date.now(), nombre: formDestino.nombre, monto, descripcion: formDestino.descripcion });
+                actualizarYGuardar({ ...datos, destinaciones: lista });
+                setModalVisible(null); mostrarNotificacion("✅ Destinación guardada");
+            };
+            const ejecutarPagoDestinacion = (e) => {
+                e.preventDefault();
+                const monto = parseFloat(formEjecutarDestino.monto);
+                const dest = (datos.destinaciones || []).find(d => d.id === formEjecutarDestino.destinacionId);
+                if (!dest || isNaN(monto)) return;
+                const cuentasAct = listaCuentas.map(c => c.id === formEjecutarDestino.cuentaId ? { ...c, saldo: c.saldo - monto } : c);
+                const nuevoMov = { id: 'm_dp_' + Date.now(), fechaHora: formEjecutarDestino.fechaHora, concepto: `🎯 Gasto Destinado: ${dest.nombre}`, monto, tipo: 'egreso', cuentaId: formEjecutarDestino.cuentaId, categoria: 'Vivienda y Servicios', moneda: 'COP' };
+                const destAct = monto >= dest.monto ? (datos.destinaciones || []).filter(d => d.id !== formEjecutarDestino.destinacionId) : (datos.destinaciones || []).map(d => d.id === formEjecutarDestino.destinacionId ? { ...d, monto: d.monto - monto } : d);
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, destinaciones: destAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null); mostrarNotificacion("⚡ Gasto ejecutado");
+            };
+            const eliminarDestinacion = (id) => { pedirConfirmacion({ titulo: "🗑️ Eliminar Destinación", mensaje: "¿Deseas eliminar este fondo reservado?", accion: () => { actualizarYGuardar({ ...datos, destinaciones: (datos.destinaciones || []).filter(d => d.id !== id) }); mostrarNotificacion("Eliminada"); } }); };
+
+            // FUNCIONES TRADING E INVERSIONES
+            const guardarTrade = (e) => {
+                e.preventDefault();
+                const montoNum = parseFloat(formTrade.montoUSD);
+                if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                let tradesAct = [...(datos.trades || [])];
+                let cuentasAct = [...listaCuentas];
+                if (formTrade.id) {
+                    const ant = tradesAct.find(t => t.id === formTrade.id);
+                    const deltaAnt = ant.resultado === 'gain' ? -ant.montoUSD : ant.montoUSD;
+                    const deltaNuevo = formTrade.resultado === 'gain' ? montoNum : -montoNum;
+                    cuentasAct = cuentasAct.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo + deltaAnt + deltaNuevo) } : c);
+                    tradesAct = tradesAct.map(t => t.id === formTrade.id ? { ...t, par: formTrade.par, resultado: formTrade.resultado, montoUSD: montoNum, estrategia: formTrade.estrategia } : t);
+                } else {
+                    const delta = formTrade.resultado === 'gain' ? montoNum : -montoNum;
+                    cuentasAct = cuentasAct.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo + delta) } : c);
+                    tradesAct = [{ id: 'trade_' + Date.now(), fechaHora: formTrade.fechaHora, par: formTrade.par, resultado: formTrade.resultado, montoUSD: montoNum, estrategia: formTrade.estrategia, cerrado: false }, ...tradesAct];
+                }
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: tradesAct });
+                setModalVisible(null); mostrarNotificacion(formTrade.id ? "✅ Trade actualizado" : "✅ Operación registrada");
+            };
+            const eliminarTrade = (id) => {
+                pedirConfirmacion({ titulo: "🗑️ Eliminar Trade", mensaje: "¿Estás seguro de revertir saldos?", accion: () => {
+                    const t = (datos.trades || []).find(x => x.id === id);
+                    if (!t) return;
+                    const delta = t.resultado === 'gain' ? -t.montoUSD : t.montoUSD;
+                    const cuentasAct = listaCuentas.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo + delta) } : c);
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: datos.trades.filter(x => x.id !== id) });
+                    mostrarNotificacion("Trade eliminado");
+                }});
+            };
+            const guardarCierreInversion = (e) => {
+                e.preventDefault();
+                const trm = parseFloat(formCierreInv.tasaTRM);
+                if (isNaN(trm) || trm <= 0) return mostrarNotificacion("TRM inválida", 'error');
+                const gananciaUSD = Math.max(0, metricasScalping.pnlNetoUSD);
+                const gananciaCOP = gananciaUSD * trm;
+                const cuentasAct = listaCuentas.map(c => c.id === 'c5' ? { ...c, saldoCOP: (c.saldoCOP || 0) + gananciaCOP } : c);
+                const nuevoCierre = { id: 'c_inv_' + Date.now(), tipo: formCierreInv.tipo, nombre: formCierreInv.nombre || 'Cierre', fechaHora: obtenerFechaHoraActual(), gananciaUSD, tasaTRM: trm, totalCOP: gananciaCOP };
+                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `📈 Cierre Scalping ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c5', categoria: 'Ingreso Extra', moneda: 'COP' } : null;
+                const tradesArchivados = (datos.trades || []).map(t => ({ ...t, cerrado: true }));
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, trades: tradesArchivados, cierresInversion: [nuevoCierre, ...(datos.cierresInversion || [])], movimientos: nuevoMov ? [nuevoMov, ...(datos.movimientos || [])] : datos.movimientos });
+                setModalVisible(null); mostrarNotificacion("🔒 Cierre procesado");
+            };
+            const transferirUtilidadBinance = (e) => {
+                e.preventDefault();
+                const monto = parseFloat(formTransferUtilidad.montoCOP);
+                if (isNaN(monto) || monto <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                const cBinance = listaCuentas.find(c => c.id === 'c5');
+                if (!cBinance || (cBinance.saldoCOP || 0) < monto) return mostrarNotificacion("Saldo insuficiente", 'error');
+                const cuentasAct = listaCuentas.map(c => {
+                    if (c.id === 'c5') return { ...c, saldoCOP: (c.saldoCOP || 0) - monto };
+                    if (c.id === formTransferUtilidad.cuentaDestinoId) return { ...c, saldo: c.saldo + monto };
+                    return c;
+                });
+                const dest = listaCuentas.find(c => c.id === formTransferUtilidad.cuentaDestinoId);
+                const nuevoMov = { id: 'm_tu_' + Date.now(), fechaHora: formTransferUtilidad.fechaHora, concepto: `Retiro Utilidad ➔ ${dest?.nombre}`, monto, tipo: 'transferencia', cuentaId: 'c5', categoria: 'General', moneda: 'COP' };
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null); mostrarNotificacion("Utilidad transferida");
+            };
+
+            const guardarHoldingEntrada = (e) => {
+                e.preventDefault();
+                const monto = parseFloat(formHoldingEntrada.montoUSD);
+                const trm = parseFloat(formHoldingEntrada.trmEntrada);
+                const costoCOP = monto * trm;
+                let holdingsAct = [...(datos.holdings || [])];
+                let cuentasAct = [...listaCuentas];
+                if (formHoldingEntrada.id) {
+                    const ant = holdingsAct.find(h => h.id === formHoldingEntrada.id);
+                    const diff = monto - ant.montoUSD;
+                    cuentasAct = cuentasAct.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo - diff) } : c);
+                    holdingsAct = holdingsAct.map(h => h.id === formHoldingEntrada.id ? { ...h, activo: formHoldingEntrada.activo, montoUSD: monto, trmEntrada: trm, costoCOP } : h);
+                } else {
+                    cuentasAct = cuentasAct.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo - monto) } : c);
+                    holdingsAct = [{ id: 'hold_' + Date.now(), activo: formHoldingEntrada.activo, montoUSD: monto, trmEntrada: trm, costoCOP, fechaHora: formHoldingEntrada.fechaHora, cerrado: false }, ...holdingsAct];
+                }
+                actualizarYGuardar({ ...datos, holdings: holdingsAct, cuentas: cuentasAct });
+                setModalVisible(null); mostrarNotificacion("💎 Holding guardado");
+            };
+            const ejecutarSalidaHolding = (e) => {
+                e.preventDefault();
+                const montoSalida = parseFloat(formHoldingSalida.montoUSDSalida);
+                const trmSalida = parseFloat(formHoldingSalida.trmSalida);
+                const h = (datos.holdings || []).find(x => x.id === formHoldingSalida.holdingId);
+                const retornadoCOP = montoSalida * trmSalida;
+                const gananciaNetaCOP = retornadoCOP - h.costoCOP;
+                const gananciaUSD = montoSalida - h.montoUSD;
+                const dest = listaCuentas.find(c => c.id === formHoldingSalida.cuentaDestinoId);
+                const cuentasAct = listaCuentas.map(c => c.id === formHoldingSalida.cuentaDestinoId ? { ...c, saldo: c.saldo + retornadoCOP } : c);
+                const holdingsAct = (datos.holdings || []).map(x => x.id === h.id ? { ...x, cerrado: true } : x);
+                const regCierre = { id: 'c_hold_' + Date.now(), activo: h.activo, trmEntrada: h.trmEntrada, trmSalida, costoCOP: h.costoCOP, gananciaNetaCOP, gananciaUSD, porcentajeRealCOP: (gananciaNetaCOP / h.costoCOP) * 100, cuentaDestinoNombre: dest?.nombre, fechaHoraCierre: formHoldingSalida.fechaHora };
+                const nuevoMov = { id: 'm_shold_' + Date.now(), fechaHora: formHoldingSalida.fechaHora, concepto: `Venta Holding ${h.activo}`, monto: retornadoCOP, tipo: 'ingreso', cuentaId: dest.id, categoria: 'Ingreso Extra', moneda: 'COP' };
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, holdings: holdingsAct, cierresHolding: [regCierre, ...(datos.cierresHolding || [])], movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                setModalVisible(null); mostrarNotificacion("🎉 Holding vendido");
+            };
+            const eliminarHolding = (id) => {
+                pedirConfirmacion({ titulo: "🗑️ Eliminar Holding", mensaje: "¿Devolver los USD al broker?", accion: () => {
+                    const h = (datos.holdings || []).find(x => x.id === id);
+                    const cuentasAct = listaCuentas.map(c => c.id === 'c5' ? { ...c, saldo: Math.max(0, c.saldo + parseFloat(h.montoUSD)) } : c);
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, holdings: datos.holdings.filter(x => x.id !== id) });
+                    mostrarNotificacion("Eliminado");
+                }});
+            };
+
+            const guardarPrediccion = (e) => {
+                e.preventDefault();
+                const monto = parseFloat(formPrediccion.montoInvertidoUSD);
+                let preds = [...(datos.predicciones || [])];
+                let cuentasAct = [...listaCuentas];
+                if (formPrediccion.id) {
+                    const ant = preds.find(p => p.id === formPrediccion.id);
+                    const diff = monto - ant.montoInvertidoUSD;
+                    cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: Math.max(0, c.saldo - diff) } : c);
+                    preds = preds.map(p => p.id === formPrediccion.id ? { ...p, activo: formPrediccion.activo, direccion: formPrediccion.direccion, montoInvertidoUSD: monto, resultado: formPrediccion.resultado, montoRetornadoUSD: formPrediccion.resultado === 'acertada' ? parseFloat(formPrediccion.montoRetornadoUSD || 0) : 0 } : p);
+                } else {
+                    cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: Math.max(0, c.saldo - monto) } : c);
+                    const np = { id: 'pred_' + Date.now(), activo: formPrediccion.activo, direccion: formPrediccion.direccion, montoInvertidoUSD: monto, resultado: formPrediccion.resultado, montoRetornadoUSD: formPrediccion.resultado === 'acertada' ? parseFloat(formPrediccion.montoRetornadoUSD || 0) : 0, fechaHora: formPrediccion.fechaHora, cerrado: false };
+                    if (np.resultado === 'acertada') cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: c.saldo + np.montoRetornadoUSD } : c);
+                    preds = [np, ...preds];
+                }
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, predicciones: preds });
+                setModalVisible(null); mostrarNotificacion("🔮 Predicción guardada");
+            };
+            const resolverPrediccion = (id, resultado, retornado = 0) => {
+                const retNum = parseFloat(retornado) || 0;
+                let preds = [...(datos.predicciones || [])];
+                let cuentasAct = [...listaCuentas];
+                const p = preds.find(x => x.id === id);
+                if (resultado === 'acertada') cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: c.saldo + retNum } : c);
+                preds = preds.map(x => x.id === id ? { ...x, resultado, montoRetornadoUSD: retNum } : x);
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, predicciones: preds });
+                mostrarNotificacion(resultado === 'acertada' ? "🎯 Acertada" : "❌ Fallida");
+            };
+            const eliminarPrediccion = (id) => {
+                pedirConfirmacion({ titulo: "🗑️ Eliminar Predicción", mensaje: "¿Devolver los USD al fondo?", accion: () => {
+                    const p = (datos.predicciones || []).find(x => x.id === id);
+                    let cuentasAct = [...listaCuentas];
+                    if (p.resultado === 'pendiente' || p.resultado === 'fallida') cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: c.saldo + p.montoInvertidoUSD } : c);
+                    else if (p.resultado === 'acertada') cuentasAct = cuentasAct.map(c => c.id === 'c6' ? { ...c, saldo: c.saldo + p.montoInvertidoUSD - p.montoRetornadoUSD } : c);
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, predicciones: datos.predicciones.filter(x => x.id !== id) });
+                    mostrarNotificacion("Eliminada");
+                }});
+            };
+            const guardarCierrePred = (e) => {
+                e.preventDefault();
+                const trm = parseFloat(formCierrePred.tasaTRM);
+                const gananciaUSD = Math.max(0, metricasPredicciones.pnlNetoUSD);
+                const gananciaCOP = gananciaUSD * trm;
+                const cuentasAct = listaCuentas.map(c => c.id === 'c6' ? { ...c, saldoCOP: (c.saldoCOP || 0) + gananciaCOP } : c);
+                const nuevoCierre = { id: 'c_pred_' + Date.now(), tipo: formCierrePred.tipo, nombre: formCierrePred.nombre || 'Cierre', fechaHora: obtenerFechaHoraActual(), gananciaUSD, tasaTRM: trm, totalCOP: gananciaCOP };
+                const nuevoMov = gananciaCOP > 0 ? { id: 'm_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🔮 Cierre Predicciones ${nuevoCierre.nombre}`, monto: gananciaCOP, tipo: 'ingreso', cuentaId: 'c6', categoria: 'Ingreso Extra', moneda: 'COP' } : null;
+                const predArchivadas = (datos.predicciones || []).map(p => ({ ...p, cerrado: true }));
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, predicciones: predArchivadas, cierresPredicciones: [nuevoCierre, ...(datos.cierresPredicciones || [])], movimientos: nuevoMov ? [nuevoMov, ...(datos.movimientos || [])] : datos.movimientos });
+                setModalVisible(null); mostrarNotificacion("🔒 Cierre procesado");
+            };
+
+            const abrirAnularCierre = (id, tipo) => { setFormAnularCierre({ id, tipo, razon: '' }); setModalVisible('anularCierre'); };
+            const procesarAnulacionCierre = (e) => {
+                e.preventDefault();
+                const { id, tipo, razon } = formAnularCierre;
+                if (tipo === 'scalping') {
+                    const c = (datos.cierresInversion || []).find(x => x.id === id);
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
+                    const nuevoMov = { id: 'm_dcinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Scalping: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c5', categoria: 'General', moneda: 'COP' };
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: datos.cierresInversion.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                } else if (tipo === 'predicciones') {
+                    const c = (datos.cierresPredicciones || []).find(x => x.id === id);
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) - c.totalCOP) } : cta);
+                    const nuevoMov = { id: 'm_dcpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Predicciones: ${c.nombre} (${razon})`, monto: c.totalCOP, tipo: 'egreso', cuentaId: 'c6', categoria: 'General', moneda: 'COP' };
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: datos.cierresPredicciones.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                } else if (tipo === 'holding') {
+                    const c = (datos.cierresHolding || []).find(x => x.id === id);
+                    const nuevoMov = { id: 'm_dchold_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `🗑️ Anulación Cierre Holding: ${c.activo} (${razon})`, monto: c.gananciaNetaCOP, tipo: 'egreso', cuentaId: 'c1', categoria: 'General', moneda: 'COP' };
+                    actualizarYGuardar({ ...datos, cierresHolding: datos.cierresHolding.filter(x => x.id !== id), movimientos: [nuevoMov, ...(datos.movimientos || [])] });
+                }
+                setModalVisible(null); mostrarNotificacion("Anulada con éxito");
+            };
+
+            const abrirEditarCierre = (c, tipo) => { setFormEditCierre({ id: c.id, tipo, nombre: c.nombre || c.activo, tasaTRM: c.tasaTRM || c.trmSalida }); setModalVisible('editarCierre'); };
+            const procesarEdicionCierre = (e) => {
+                e.preventDefault();
+                const { id, tipo, nombre, tasaTRM } = formEditCierre;
+                const trmNum = parseFloat(tasaTRM);
+                if (tipo === 'scalping') {
+                    const c = (datos.cierresInversion || []).find(x => x.id === id);
+                    const nuevoTotalCOP = c.gananciaUSD * trmNum;
+                    const deltaCOP = nuevoTotalCOP - c.totalCOP;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c5' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
+                    const cierresAct = datos.cierresInversion.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
+                    let movsAct = [...(datos.movimientos || [])];
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cinv_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Scalp: ${nombre}`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c5', moneda: 'COP' });
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresInversion: cierresAct, movimientos: movsAct });
+                } else if (tipo === 'predicciones') {
+                    const c = (datos.cierresPredicciones || []).find(x => x.id === id);
+                    const nuevoTotalCOP = c.gananciaUSD * trmNum;
+                    const deltaCOP = nuevoTotalCOP - c.totalCOP;
+                    const cuentasAct = listaCuentas.map(cta => cta.id === 'c6' ? { ...cta, saldoCOP: Math.max(0, (cta.saldoCOP || 0) + deltaCOP) } : cta);
+                    const cierresAct = datos.cierresPredicciones.map(x => x.id === id ? { ...x, nombre, tasaTRM: trmNum, totalCOP: nuevoTotalCOP } : x);
+                    let movsAct = [...(datos.movimientos || [])];
+                    if (deltaCOP !== 0) movsAct.unshift({ id: 'm_e_cpred_' + Date.now(), fechaHora: obtenerFechaHoraActual(), concepto: `⚙️ Edición Cierre Pred: ${nombre}`, monto: Math.abs(deltaCOP), tipo: deltaCOP > 0 ? 'ingreso' : 'egreso', cuentaId: 'c6', moneda: 'COP' });
+                    actualizarYGuardar({ ...datos, cuentas: cuentasAct, cierresPredicciones: cierresAct, movimientos: movsAct });
+                } else if (tipo === 'holding') {
+                    const c = (datos.cierresHolding || []).find(x => x.id === id);
+                    const montoUSDSalida = (c.costoCOP / c.trmEntrada) + c.gananciaUSD;
+                    const nuevoRetornadoCOP = montoUSDSalida * trmNum;
+                    const nuevaGananciaNetaCOP = nuevoRetornadoCOP - c.costoCOP;
+                    const cierresAct = datos.cierresHolding.map(x => x.id === id ? { ...x, activo: nombre, trmSalida: trmNum, gananciaNetaCOP: nuevaGananciaNetaCOP, porcentajeRealCOP: (nuevaGananciaNetaCOP / c.costoCOP) * 100 } : x);
+                    actualizarYGuardar({ ...datos, cierresHolding: cierresAct });
+                }
+                setModalVisible(null); mostrarNotificacion("✅ Ajustado");
             };
 
             const movimientosFiltrados = useMemo(() => {
@@ -310,6 +626,7 @@
                 if (busquedaMov.trim()) lista = lista.filter(m => m.concepto.toLowerCase().includes(busquedaMov.toLowerCase()));
                 return lista;
             }, [datos.movimientos, busquedaMov, filtroCuentaMov]);
+
 
             // INTERFAZ DE AUTENTICACIÓN
             if (cargandoAuth) return <div className="min-h-screen bg-black flex items-center justify-center text-emerald-500 font-black text-xl">Conectando Bóveda...</div>;
@@ -331,16 +648,17 @@
 
             const rubros = [
                 { id: 'inicio', etiqueta: '🏛️ Balance', corto: 'Balance' },
-                { id: 'cuentas', etiqueta: '💳 Liquidez', corto: 'Liquidez' },
+                { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas' },
                 { id: 'inversiones', etiqueta: '📈 Inversiones', corto: 'Trades' },
                 { id: 'deudas', etiqueta: '🔴 Deudas', corto: 'Deudas' },
                 { id: 'porCobrar', etiqueta: '🟢 Cartera', corto: 'Cartera' },
+                { id: 'destinaciones', etiqueta: '🎯 Destinos', corto: 'Destinos' },
                 { id: 'movimientos', etiqueta: '📜 Flujo Caja', corto: 'Flujo' }
             ];
 
             return (
                 <div className="flex flex-col min-h-screen bg-black text-neutral-100">
-                    <input type="file" ref={inputFileRef} onChange={/* logica import */} accept=".json" className="hidden" />
+                    <input type="file" ref={inputFileRef} onChange={importarBackupJSON} accept=".json" className="hidden" />
 
                     {notificacion && (
                         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl border backdrop-blur-md transition-all ${notificacion.tipo === 'exito' ? 'bg-emerald-950/90 text-emerald-400 border-emerald-500/40' : 'bg-red-950/90 text-red-400 border-red-500/40'}`}>
@@ -361,22 +679,34 @@
                     <header className="bg-neutral-950 border-b border-neutral-900 sticky top-0 z-30">
                         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
+                                <div className="relative">
+                                    <button onClick={() => setMenuAdminAbierto(!menuAdminAbierto)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition flex items-center justify-center w-9 h-9">⋮</button>
+                                    {menuAdminAbierto && (
+                                        <div className="absolute left-0 mt-2 w-48 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl z-50 py-2 space-y-1 text-xs backdrop-blur-md">
+                                            <button onClick={exportarBackupJSON} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-emerald-400 font-bold">💾 Exportar Backup</button>
+                                            <button onClick={() => { if(inputFileRef.current) inputFileRef.current.click(); setMenuAdminAbierto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-amber-400 font-bold">📥 Cargar Backup</button>
+                                            <div className="border-t border-neutral-800 my-1"></div>
+                                            <button onClick={cerrarSesion} className="w-full text-left px-4 py-2.5 hover:bg-neutral-800 text-red-400 font-bold">🔒 Cerrar Bóveda</button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="w-9 h-9 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-center text-xl">🚀</div>
                                 <div><h1 className="font-bold text-white text-base leading-none">Mis Finanzas</h1><span className="text-[10px] text-emerald-400 font-semibold">Jose Pacheco</span></div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="hidden sm:flex flex-col items-end mr-2 bg-neutral-900/50 px-3 py-1 rounded-lg border border-neutral-800">
-                                    <span className="text-[9px] text-neutral-500 font-bold uppercase">USDT En Vivo (Binance)</span>
+                                    <span className="text-[9px] text-neutral-500 font-bold uppercase">USDT En Vivo</span>
                                     <span className="text-xs font-black text-amber-400">${precioUSDT.toLocaleString('es-CO')}</span>
                                 </div>
                                 <button onClick={() => setOcultarSaldos(!ocultarSaldos)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">{ocultarSaldos ? '👁️‍🗨️' : '👁️'}</button>
-                                <button onClick={cerrarSesion} className="bg-neutral-900 hover:bg-red-900/40 text-red-400 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">🔒</button>
+                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">⇄ Transferir</button>
+                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold">+ Mov</button>
                             </div>
                         </div>
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
-                            <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1">
+                            <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
                                 {rubros.map(r => (
-                                    <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex-1 py-3 px-2 text-center text-xs font-extrabold transition border-b-2 ${rubroActivo === r.id ? 'border-emerald-500 text-emerald-400 bg-neutral-900/50' : 'border-transparent text-neutral-400 hover:text-white'}`}>{r.etiqueta}</button>
+                                    <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex-1 py-3 px-2 text-center text-[11px] font-extrabold transition border-b-2 ${rubroActivo === r.id ? 'border-emerald-500 text-emerald-400 bg-neutral-900/50' : 'border-transparent text-neutral-400 hover:text-white'}`}>{r.etiqueta}</button>
                                 ))}
                             </div>
                         </div>
@@ -384,15 +714,16 @@
 
                     <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-3.5 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-xl">➕</button>
 
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-6 gap-0.5 z-40">
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-7 gap-0.5 z-40">
                         {rubros.map(r => (
                             <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex flex-col items-center justify-center py-2 px-0.5 rounded-xl transition ${rubroActivo === r.id ? 'text-emerald-400 bg-neutral-900 font-extrabold' : 'text-neutral-400'}`}>
-                                <span className="text-[9px] leading-tight text-center">{r.corto}</span>
+                                <span className="text-[9px] leading-tight text-center truncate w-full">{r.corto}</span>
                             </button>
                         ))}
                     </nav>
 
                     <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+                        
                         {rubroActivo === 'inicio' && (
                             <div className="space-y-6">
                                 {/* DASHBOARD PATRIMONIAL */}
@@ -408,25 +739,257 @@
                                         <div><div className="text-[10px] text-neutral-500 uppercase font-bold">4. Pasivos (Deudas)</div><div className="text-sm font-black text-red-500">-{formatearMoneda(totales.pasivosTotales, 'COP')}</div><div className="text-[9px] text-neutral-400 mt-0.5">Dinero comprometido</div></div>
                                     </div>
                                 </div>
+                            </div>
+                        )}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl">
-                                        <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold text-neutral-300 uppercase">🎯 Patrimonio Restringido</h3><button onClick={() => { setFormDestino({ id: null, nombre: '', monto: '', descripcion: '' }); setModalVisible('destinacion'); }} className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-3 py-1 rounded-lg">+ Destinar</button></div>
-                                        {(!datos.destinaciones || datos.destinaciones.length === 0) ? <div className="text-xs text-neutral-500">Sin reservas activas.</div> : (
-                                            <div className="space-y-3">
-                                                {datos.destinaciones.map(d => (
-                                                    <div key={d.id} className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                                                        <div><div className="font-bold text-sm text-white">{d.nombre}</div><div className="text-[10px] text-neutral-400">{d.descripcion}</div></div>
-                                                        <div className="text-right">
-                                                            <div className="font-black text-emerald-400">{formatearMoneda(d.monto, 'COP')}</div>
-                                                            <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: 'c1', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="text-[10px] text-emerald-500 hover:underline">⚡ Ejecutar Gasto</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                        {rubroActivo === 'cuentas' && (
+                            <div className="space-y-4">
+                                <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
+                                    <div><div className="text-xs text-neutral-400">Saldo Total Bruto Cuentas COP</div><div className="text-2xl font-black text-white mt-0.5">{formatearMoneda(totales.liquidezBrutaCOP, 'COP')}</div></div>
+                                    <div className="text-right"><div className="text-xs text-neutral-400">Disponible Libre Real</div><div className="text-lg font-black text-emerald-400">{formatearMoneda(totales.liquidezLibreCOP, 'COP')}</div></div>
                                 </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                    {listaCuentas.map(c => {
+                                        if (c.id === 'c5' || c.id === 'c6') {
+                                            const isC5 = c.id === 'c5';
+                                            return (
+                                                <div key={c.id} className={`bg-neutral-900 border p-4 rounded-2xl space-y-3 ${isC5 ? 'border-amber-500/30' : 'border-purple-500/30'}`}>
+                                                    <div className="flex justify-between items-center">
+                                                        <div><span className={`text-[10px] font-bold uppercase ${isC5 ? 'text-amber-400' : 'text-purple-400'}`}>{isC5 ? 'BROKER SCALPING / HOLDING' : 'FONDO PREDICCIONES'}</span><h3 className="font-bold text-white text-base">{c.nombre}</h3></div>
+                                                        <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo, nota: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('ajusteSaldo'); }} className={`text-[10px] font-bold hover:underline ${isC5 ? 'text-amber-400' : 'text-purple-400'}`}>⚙️ Ajustar USD</button>
+                                                    </div>
+                                                    <div className="space-y-1.5 bg-black/50 p-2.5 rounded-xl border border-neutral-800 text-xs">
+                                                        <div className="flex justify-between"><span className="text-neutral-400">Capital Activo USD:</span><span className={`font-black ${isC5 ? 'text-amber-400' : 'text-purple-400'}`}>{formatearMoneda(c.saldo, 'USD')}</span></div>
+                                                        <div className="flex justify-between border-t border-neutral-800 pt-1"><span className="text-neutral-400">Utilidad Liquidada COP:</span><span className="font-black text-emerald-400">{formatearMoneda(c.saldoCOP || 0, 'COP')}</span></div>
+                                                    </div>
+                                                    {(c.saldoCOP || 0) > 0 && (
+                                                        <button onClick={() => { setFormTransferUtilidad({ cuentaDestinoId: 'c2', montoCOP: c.saldoCOP, fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferirUtilidad'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30">⇄ Transferir Utilidad (COP)</button>
+                                                    )}
+                                                </div>
+                                            );
+                                        }
+                                        return (
+                                            <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <div><span className="text-[10px] font-bold text-neutral-500 uppercase">{c.tipo}</span><h3 className="font-bold text-white text-base">{c.nombre}</h3></div>
+                                                    <div className="text-lg font-black text-emerald-400">{formatearMoneda(c.saldo, 'COP')}</div>
+                                                </div>
+                                                <button onClick={() => { setFormAjusteSaldo({ cuentaId: c.id, nuevoSaldo: c.saldo, nota: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('ajusteSaldo'); }} className="w-full text-center text-[11px] font-bold text-neutral-400 bg-black/60 py-1.5 rounded-lg border border-neutral-800">⚙️ Calibrar Saldo</button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {rubroActivo === 'inversiones' && (
+                            <div className="space-y-4">
+                                <div className="flex bg-neutral-900 border border-neutral-800 p-1.5 rounded-2xl gap-1">
+                                    <button onClick={() => setSubRubroTrade('scalping')} className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition ${subRubroTrade === 'scalping' ? 'bg-amber-500 text-neutral-950' : 'text-neutral-400 hover:text-white'}`}>⚡ Scalping</button>
+                                    <button onClick={() => setSubRubroTrade('holding')} className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition ${subRubroTrade === 'holding' ? 'bg-cyan-500 text-neutral-950' : 'text-neutral-400 hover:text-white'}`}>💎 Holding</button>
+                                    <button onClick={() => setSubRubroTrade('predicciones')} className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition ${subRubroTrade === 'predicciones' ? 'bg-purple-500 text-neutral-950' : 'text-neutral-400 hover:text-white'}`}>🔮 Predicciones</button>
+                                </div>
+
+                                {subRubroTrade === 'scalping' && (
+                                    <div className="space-y-4">
+                                        <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                            <div><span className="text-xs font-bold text-neutral-400 uppercase">Capital Binance USD</span><div className="text-3xl font-black text-amber-400 mt-1">{formatearMoneda(totales.capScalpingUSD, 'USD')}</div></div>
+                                            <div className="flex gap-2 w-full md:w-auto">
+                                                <button onClick={() => { setFormTrade({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('trade'); }} className="flex-1 bg-amber-500 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl">+ Trade</button>
+                                                <button onClick={() => { setFormCierreInv({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT }); setModalVisible('cierreInversion'); }} className="flex-1 bg-neutral-800 text-amber-400 border border-amber-500/30 font-bold text-xs px-4 py-3 rounded-xl">🔒 Liquidar Cierre</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Win Rate</div><div className="text-xl font-black text-emerald-400 mt-1">{metricasScalping.winRate}%</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Ratio R:R</div><div className="text-xl font-black text-amber-400 mt-1">1:{metricasScalping.ratioRR}</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Prom. Gain/Loss</div><div className="text-xs font-bold text-emerald-400 mt-1">+{formatearMoneda(metricasScalping.avgGain, 'USD')}</div><div className="text-xs font-bold text-red-500">-{formatearMoneda(metricasScalping.avgLoss, 'USD')}</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">P&L Neto Activo</div><div className={`text-xl font-black mt-1 ${metricasScalping.pnlNetoUSD >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{metricasScalping.pnlNetoUSD >= 0 ? '+' : ''}{formatearMoneda(metricasScalping.pnlNetoUSD, 'USD')}</div></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Bitácora Activa</h3>
+                                                {(!datos.trades || datos.trades.filter(t => !t.cerrado).length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin trades activos.</div>
+                                                ) : (
+                                                    datos.trades.filter(t => !t.cerrado).map(t => (
+                                                        <div key={t.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl flex justify-between items-center">
+                                                            <div>
+                                                                <div className="flex items-center gap-2"><span className={`text-xs font-black px-2 py-0.5 rounded-md ${t.resultado === 'gain' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{t.resultado.toUpperCase()}</span><span className="font-bold text-white">{t.par}</span></div>
+                                                                <p className="text-[11px] text-neutral-400 mt-1">{t.estrategia || 'Sin nota'} • {formatearFechaHora(t.fechaHora)}</p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className={`text-base font-black ${t.resultado === 'gain' ? 'text-emerald-400' : 'text-red-500'}`}>{t.resultado === 'gain' ? '+' : '-'}{formatearMoneda(t.montoUSD, 'USD')}</div>
+                                                                <div className="flex gap-2 justify-end mt-1">
+                                                                    <button onClick={() => { setFormTrade({ ...t }); setModalVisible('trade'); }} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => eliminarTrade(t.id)} className="text-[10px] text-neutral-500 hover:text-red-500 underline">Eliminar</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Cierres Liquidados (COP)</h3>
+                                                {(!datos.cierresInversion || datos.cierresInversion.length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin cierres.</div>
+                                                ) : (
+                                                    datos.cierresInversion.map(c => (
+                                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-1 text-xs flex justify-between items-center">
+                                                            <div>
+                                                                <div className="font-bold text-amber-400">{c.nombre}</div>
+                                                                <div className="text-[10px] text-neutral-500">TRM: ${c.tasaTRM} • {formatearFechaHora(c.fechaHora)}</div>
+                                                            </div>
+                                                            <div className="text-right flex flex-col items-end gap-1">
+                                                                <div className="font-black text-emerald-400">+{formatearMoneda(c.totalCOP, 'COP')}</div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'scalping')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'scalping')} className="text-[10px] text-red-500 hover:text-red-400 underline">Anular</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {subRubroTrade === 'holding' && (
+                                    <div className="space-y-4">
+                                        <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                            <div><span className="text-xs font-bold text-neutral-400 uppercase">Capital en Holding (USD)</span><div className="text-3xl font-black text-cyan-400 mt-1">{formatearMoneda(totales.holdingActivoUSD, 'USD')}</div></div>
+                                            <button onClick={() => { setFormHoldingEntrada({ id: null, activo: 'BTC', montoUSD: '', trmEntrada: precioUSDT, fechaHora: obtenerFechaHoraActual() }); setModalVisible('holdingEntrada'); }} className="bg-cyan-500 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl w-full md:w-auto">+ Comprar Holding</button>
+                                        </div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Win Rate</div><div className="text-xl font-black text-cyan-400 mt-1">{metricasHolding.winRate}%</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">P&L Histórico COP</div><div className={`text-xl font-black mt-1 ${metricasHolding.pnlTotalCOP >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{metricasHolding.pnlTotalCOP >= 0 ? '+' : ''}{formatearMoneda(metricasHolding.pnlTotalCOP, 'COP')}</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center col-span-2 sm:col-span-1"><div className="text-[10px] text-neutral-400 uppercase">P&L Histórico USD</div><div className={`text-xl font-black mt-1 ${metricasHolding.pnlTotalUSD >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{metricasHolding.pnlTotalUSD >= 0 ? '+' : ''}{formatearMoneda(metricasHolding.pnlTotalUSD, 'USD')}</div></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Holdings Activos</h3>
+                                                {(!datos.holdings || datos.holdings.filter(h => !h.cerrado).length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin posiciones.</div>
+                                                ) : (
+                                                    datos.holdings.filter(h => !h.cerrado).map(h => (
+                                                        <div key={h.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="flex items-center gap-2"><span className="bg-cyan-500/20 text-cyan-400 text-xs font-extrabold px-2 py-0.5 rounded-md border border-cyan-500/30">💎 HOLD</span><span className="font-bold text-white text-base">{h.activo}</span></div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => { setFormHoldingEntrada({ ...h }); setModalVisible('holdingEntrada'); }} className="text-xs text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => eliminarHolding(h.id)} className="text-xs text-red-500 hover:underline">Eliminar</button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2 text-xs bg-black/50 p-2.5 rounded-xl border border-neutral-800">
+                                                                <div><span className="text-neutral-400">USD:</span> <strong className="text-white">{formatearMoneda(h.montoUSD, 'USD')}</strong></div>
+                                                                <div><span className="text-neutral-400">TRM Ent:</span> <strong className="text-amber-400">${h.trmEntrada}</strong></div>
+                                                                <div className="col-span-2 border-t border-neutral-800 pt-1"><span className="text-neutral-400">Costo COP:</span> <strong className="text-neutral-200">{formatearMoneda(h.costoCOP, 'COP')}</strong></div>
+                                                            </div>
+                                                            <button onClick={() => { setFormHoldingSalida({ holdingId: h.id, montoUSDSalida: h.montoUSD, trmSalida: precioUSDT, cuentaDestinoId: listaCuentas[0]?.id || 'c3', fechaHora: obtenerFechaHoraActual() }); setModalVisible('holdingSalida'); }} className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold py-2.5 rounded-xl border border-cyan-500/30">💸 Vender</button>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Holdings Cerrados</h3>
+                                                {(!datos.cierresHolding || datos.cierresHolding.length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin historial.</div>
+                                                ) : (
+                                                    datos.cierresHolding.map(c => (
+                                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-2 text-xs">
+                                                            <div className="flex justify-between font-bold text-white"><span>{c.activo} ➔ {c.cuentaDestinoNombre}</span><span className={c.gananciaNetaCOP >= 0 ? 'text-emerald-400' : 'text-red-500'}>{c.gananciaNetaCOP >= 0 ? '+' : ''}{formatearMoneda(c.gananciaNetaCOP, 'COP')} ({c.porcentajeRealCOP.toFixed(1)}%)</span></div>
+                                                            <div className="flex justify-between items-end border-t border-neutral-800 pt-1.5">
+                                                                <div className="text-[10px] text-neutral-400">TRM Ent: ${c.trmEntrada} • TRM Sal: ${c.trmSalida}<br/>{formatearFechaHora(c.fechaHoraCierre)}</div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'holding')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'holding')} className="text-[10px] text-red-500 hover:text-red-400 underline">Borrar Historial</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {subRubroTrade === 'predicciones' && (
+                                    <div className="space-y-4">
+                                        <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                            <div><span className="text-xs font-bold text-neutral-400 uppercase">Fondo Predicciones USD</span><div className="text-3xl font-black text-purple-400 mt-1">{formatearMoneda(totales.capPredUSD, 'USD')}</div></div>
+                                            <div className="flex gap-2 w-full md:w-auto">
+                                                <button onClick={() => { setFormPrediccion({ id: null, activo: 'BTC/USDT', direccion: 'sube', montoInvertidoUSD: '', resultado: 'pendiente', montoRetornadoUSD: '', cuentaId: 'c6', fechaHora: obtenerFechaHoraActual() }); setModalVisible('prediccion'); }} className="flex-1 bg-purple-500 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl">+ Predicción</button>
+                                                <button onClick={() => { setFormCierrePred({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT }); setModalVisible('cierrePred'); }} className="flex-1 bg-neutral-800 text-purple-400 border border-purple-500/30 font-bold text-xs px-4 py-3 rounded-xl">🔒 Liquidar Cierre</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Win Rate</div><div className="text-xl font-black text-purple-400 mt-1">{metricasPredicciones.winRate}%</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Aciertos/Fallos</div><div className="text-xl font-black text-white mt-1">{metricasPredicciones.aciertosCount} / {metricasPredicciones.fallidasCount}</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">Activas</div><div className="text-xl font-black text-neutral-200 mt-1">{metricasPredicciones.total}</div></div>
+                                            <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl text-center"><div className="text-[10px] text-neutral-400 uppercase">P&L Neto (USD)</div><div className={`text-xl font-black mt-1 ${metricasPredicciones.pnlNetoUSD >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{metricasPredicciones.pnlNetoUSD >= 0 ? '+' : ''}{formatearMoneda(metricasPredicciones.pnlNetoUSD, 'USD')}</div></div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Bitácora Predicciones</h3>
+                                                {(!datos.predicciones || datos.predicciones.filter(p => !p.cerrado).length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin predicciones activas.</div>
+                                                ) : (
+                                                    datos.predicciones.filter(p => !p.cerrado).map(p => {
+                                                        const esPendiente = p.resultado === 'pendiente';
+                                                        const esAcertada = p.resultado === 'acertada';
+                                                        const net = esAcertada ? p.montoRetornadoUSD - p.montoInvertidoUSD : (esPendiente ? 0 : -p.montoInvertidoUSD);
+                                                        return (
+                                                            <div key={p.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${p.direccion === 'sube' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.direccion === 'sube' ? '🟢 SUBE' : '🔴 BAJA'}</span>
+                                                                        <span className="font-bold text-white text-sm">{p.activo}</span>
+                                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${esPendiente ? 'bg-amber-500/20 text-amber-400' : esAcertada ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.resultado.toUpperCase()}</span>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-neutral-400 mt-1">USD: {formatearMoneda(p.montoInvertidoUSD, 'USD')} • {formatearFechaHora(p.fechaHora)}</p>
+                                                                </div>
+                                                                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                                                                    {!esPendiente && <div className={`text-sm font-black ${net >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>{net >= 0 ? '+' : ''}{formatearMoneda(net, 'USD')}</div>}
+                                                                    {esPendiente && (
+                                                                        <div className="flex gap-1.5">
+                                                                            <button onClick={() => { setFormResolverPred({ id: p.id, montoRetornadoUSD: '' }); setModalVisible('resolverPrediccion'); }} className="bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/40">✓</button>
+                                                                            <button onClick={() => resolverPrediccion(p.id, 'fallida')} className="bg-red-500/20 text-red-400 px-3 py-1.5 rounded-xl text-xs font-bold border border-red-500/40">✕</button>
+                                                                        </div>
+                                                                    )}
+                                                                    <button onClick={() => { setFormPrediccion({...p}); setModalVisible('prediccion'); }} className="text-neutral-400 hover:text-white text-xs font-bold">✏️</button>
+                                                                    <button onClick={() => eliminarPrediccion(p.id)} className="text-neutral-500 hover:text-red-500 text-xs font-bold">🗑️</button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-neutral-400 uppercase">Cierres Liquidados (COP)</h3>
+                                                {(!datos.cierresPredicciones || datos.cierresPredicciones.length === 0) ? (
+                                                    <div className="text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin cierres.</div>
+                                                ) : (
+                                                    datos.cierresPredicciones.map(c => (
+                                                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-2xl space-y-1 text-xs flex justify-between items-center">
+                                                            <div>
+                                                                <div className="font-bold text-purple-400">{c.nombre}</div>
+                                                                <div className="text-[10px] text-neutral-500">TRM: ${c.tasaTRM} • {formatearFechaHora(c.fechaHora)}</div>
+                                                            </div>
+                                                            <div className="text-right flex flex-col items-end gap-1">
+                                                                <div className="font-black text-emerald-400">+{formatearMoneda(c.totalCOP, 'COP')}</div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => abrirEditarCierre(c, 'predicciones')} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
+                                                                    <button onClick={() => abrirAnularCierre(c.id, 'predicciones')} className="text-[10px] text-red-500 hover:text-red-400 underline">Anular</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -437,7 +1000,6 @@
                                     <button onClick={() => { setFormDeuda({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('deuda'); }} className="bg-red-600 text-white font-extrabold text-xs px-4 py-3 rounded-xl shadow-lg shadow-red-900/20">+ Nueva Deuda</button>
                                 </div>
                                 
-                                {/* DEUDAS ACTIVAS */}
                                 <h3 className="text-xs font-bold text-neutral-400 uppercase border-b border-neutral-800 pb-2">Pendientes</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {(datos.deudas || []).filter(d => {
@@ -463,7 +1025,6 @@
                                                     <button onClick={() => toggleHistorial(d.id)} className="px-3 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold">{historialExp[d.id] ? 'Ocultar' : 'Historial'}</button>
                                                 </div>
 
-                                                {/* SUBTABLA HISTORIAL */}
                                                 {historialExp[d.id] && (
                                                     <div className="mt-2 bg-black/60 rounded-xl p-3 border border-neutral-800 space-y-2">
                                                         <div className="text-[10px] font-bold text-neutral-500 uppercase border-b border-neutral-800 pb-1">Historial de Pagos</div>
@@ -482,7 +1043,6 @@
                                     })}
                                 </div>
 
-                                {/* DEUDAS SALDADAS (CERRADAS) */}
                                 <h3 className="text-xs font-bold text-emerald-400 uppercase border-b border-neutral-800 pb-2 mt-6">Saldadas / Históricas</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 opacity-70">
                                     {(datos.deudas || []).filter(d => (d.montoOriginal - (d.abonos || []).reduce((a,b) => a+b.monto, 0)) <= 0).map(d => (
@@ -503,7 +1063,6 @@
                                     <button onClick={() => { setFormPorCobrar({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('porCobrar'); }} className="bg-cyan-500 text-neutral-950 font-extrabold text-xs px-4 py-3 rounded-xl shadow-lg shadow-cyan-900/20">+ Prestar Plata</button>
                                 </div>
                                 
-                                {/* CARTERA ACTIVA */}
                                 <h3 className="text-xs font-bold text-neutral-400 uppercase border-b border-neutral-800 pb-2">Pendientes de Cobro</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {(datos.porCobrar || []).filter(r => {
@@ -529,7 +1088,6 @@
                                                     <button onClick={() => toggleHistorial(r.id)} className="px-3 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold">{historialExp[r.id] ? 'Ocultar' : 'Historial'}</button>
                                                 </div>
 
-                                                {/* SUBTABLA HISTORIAL */}
                                                 {historialExp[r.id] && (
                                                     <div className="mt-2 bg-black/60 rounded-xl p-3 border border-neutral-800 space-y-2">
                                                         <div className="text-[10px] font-bold text-neutral-500 uppercase border-b border-neutral-800 pb-1">Historial de Ingresos</div>
@@ -548,7 +1106,6 @@
                                     })}
                                 </div>
 
-                                {/* CARTERA RECUPERADA (CERRADA) */}
                                 <h3 className="text-xs font-bold text-emerald-400 uppercase border-b border-neutral-800 pb-2 mt-6">Recuperada / Histórica</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 opacity-70">
                                     {(datos.porCobrar || []).filter(r => (r.montoOriginal - (r.abonos || []).reduce((a,b) => a+b.monto, 0)) <= 0).map(r => (
@@ -562,10 +1119,42 @@
                             </div>
                         )}
 
+                        {rubroActivo === 'destinaciones' && (
+                            <div className="space-y-4">
+                                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex justify-between items-center">
+                                    <div><div className="text-xs text-neutral-400">Total Reservado</div><div className="text-xl font-black text-white mt-0.5">{formatearMoneda(totales.totalDestinado, 'COP')}</div></div>
+                                    <button onClick={() => { setFormDestino({ id: null, nombre: '', monto: '', descripcion: '' }); setModalVisible('destinacion'); }} className="bg-emerald-500 text-neutral-950 text-xs font-extrabold px-3.5 py-2 rounded-xl">+ Destinar</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {(!datos.destinaciones || datos.destinaciones.length === 0) ? (
+                                        <div className="col-span-full text-neutral-500 italic text-center py-8 bg-neutral-900/40 border border-neutral-800 rounded-2xl text-xs">Sin destinaciones.</div>
+                                    ) : (
+                                        datos.destinaciones.map(d => (
+                                            <div key={d.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div><h4 className="font-bold text-white text-base">{d.nombre}</h4><p className="text-xs text-neutral-400">{d.descripcion}</p></div>
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => { setFormDestino({ ...d }); setModalVisible('destinacion'); }} className="text-xs text-neutral-400 hover:text-white">Editar</button>
+                                                        <button onClick={() => eliminarDestinacion(d.id)} className="text-red-500 text-xs font-bold">Eliminar</button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-between items-end border-t border-neutral-800 pt-2"><span className="text-xs text-neutral-400">Reservado</span><div className="text-xl font-black text-emerald-400">{formatearMoneda(d.monto, 'COP')}</div></div>
+                                                <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-extrabold py-2.5 rounded-xl border border-emerald-500/30">⚡ Pagar / Ejecutar Gasto</button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {rubroActivo === 'movimientos' && (
                             <div className="space-y-4">
                                 <div className="flex flex-col md:flex-row gap-2 justify-between items-center bg-neutral-900 border border-neutral-800 p-3 rounded-2xl">
                                     <input type="text" placeholder="🔍 Buscar concepto..." value={busquedaMov} onChange={e => setBusquedaMov(e.target.value)} className="w-full md:w-1/3 bg-black border border-neutral-800 text-white rounded-xl px-3 py-2 text-xs focus:outline-none" />
+                                    <select value={filtroCuentaMov} onChange={e => setFiltroCuentaMov(e.target.value)} className="w-full md:w-auto bg-black border border-neutral-800 text-emerald-400 text-xs font-bold rounded-xl px-3 py-2">
+                                        <option value="todas">💳 Todas las Cuentas</option>
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
                                 </div>
                                 <div className="space-y-2">
                                     {movimientosFiltrados.length === 0 ? (
@@ -574,14 +1163,18 @@
                                         movimientosFiltrados.map(m => {
                                             const c = listaCuentas.find(cuenta => cuenta.id === m.cuentaId);
                                             const esIngreso = m.tipo === 'ingreso';
+                                            const esTransferencia = m.tipo === 'transferencia';
                                             return (
                                                 <div key={m.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex justify-between items-center">
                                                     <div>
-                                                        <div className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-full ${esIngreso ? 'bg-emerald-400' : 'bg-red-500'}`}></span><h4 className="font-bold text-white text-sm">{m.concepto}</h4></div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`w-2.5 h-2.5 rounded-full ${esTransferencia ? 'bg-amber-400' : esIngreso ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
+                                                            <h4 className="font-bold text-white text-sm">{m.concepto}</h4>
+                                                        </div>
                                                         <p className="text-[10px] text-neutral-400 mt-0.5"><span className="border border-neutral-700 px-1.5 py-0.5 rounded mr-1 text-neutral-500">{m.categoria || 'General'}</span> {c?.nombre || 'Cuenta Eliminada'} • {formatearFechaHora(m.fechaHora)}</p>
                                                     </div>
                                                     <div className="text-right flex flex-col items-end">
-                                                        <div className={`text-base font-black ${esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>{esIngreso ? '+' : '-'}{formatearMoneda(m.monto, m.moneda || 'COP')}</div>
+                                                        <div className={`text-base font-black ${esTransferencia ? 'text-amber-400' : esIngreso ? 'text-emerald-400' : 'text-red-500'}`}>{esTransferencia ? '⇄ ' : esIngreso ? '+' : '-'}{formatearMoneda(m.monto, m.moneda || 'COP')}</div>
                                                         <div className="flex gap-2 mt-1">
                                                             <button onClick={() => { setFormMov({ ...m }); setModalVisible('movimiento'); }} className="text-[10px] text-neutral-400 hover:text-white underline">Editar</button>
                                                             <button onClick={() => eliminarMovimiento(m.id)} className="text-[10px] text-neutral-500 hover:text-red-500 underline">Borrar</button>
@@ -594,11 +1187,9 @@
                                 </div>
                             </div>
                         )}
-                        
-                        {/* NOTA: Para no sobrepasar los límites de visualización, asume que los módulos de Cuentas e Inversiones que no toqué en esta corrección contable siguen idénticos y funcionales. */}
                     </main>
 
-                    {/* MODALES CLAVE AÑADIDOS/MODIFICADOS */}
+                    {/* MODALES CLAVE */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -613,13 +1204,139 @@
                         </div>
                     )}
 
+                    {modalVisible === 'transferencia' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={realizarTransferencia} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⇄ Transferir</h3>
+                                <div><label className="text-xs text-neutral-400">Origen</label><select value={formTransfer.cuentaOrigenId} onChange={e => setFormTransfer({ ...formTransfer, cuentaOrigenId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div><label className="text-xs text-emerald-400 font-bold">Destino</label><select value={formTransfer.cuentaDestinoId} onChange={e => setFormTransfer({ ...formTransfer, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formTransfer.monto} onChange={e => setFormTransfer({ ...formTransfer, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Transferir</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'ajusteSaldo' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarAjusteSaldo} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⚙️ Calibrar Saldo</h3>
+                                <div><label className="text-xs text-neutral-400">Nuevo Saldo Real</label><input type="number" step="any" required value={formAjusteSaldo.nuevoSaldo} onChange={e => setFormAjusteSaldo({ ...formAjusteSaldo, nuevoSaldo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">Nota / Motivo</label><input type="text" required placeholder="Motivo del ajuste" value={formAjusteSaldo.nota} onChange={e => setFormAjusteSaldo({ ...formAjusteSaldo, nota: e.target.value })} className="w-full bg-black border border-amber-500/40 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Calibrar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'trade' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarTrade} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⚡ Registrar Scalp</h3>
+                                <div><label className="text-xs text-neutral-400">Par</label><input type="text" required value={formTrade.par} onChange={e => setFormTrade({ ...formTrade, par: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold" /></div>
+                                <div><label className="text-xs text-neutral-400">Resultado</label><select value={formTrade.resultado} onChange={e => setFormTrade({ ...formTrade, resultado: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1"><option value="gain">🟢 Gain (USD)</option><option value="loss">🔴 Loss (USD)</option></select></div>
+                                <div><label className="text-xs text-amber-400 font-bold">Monto (USD)</label><input type="number" step="any" required value={formTrade.montoUSD} onChange={e => setFormTrade({ ...formTrade, montoUSD: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-black text-xl rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Estrategia</label><input type="text" value={formTrade.estrategia} onChange={e => setFormTrade({ ...formTrade, estrategia: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'cierreInversion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarCierreInversion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">🔒 Cierre Scalping</h3>
+                                <div><label className="text-xs text-neutral-400">Nombre</label><input type="text" value={formCierreInv.nombre} onChange={e => setFormCierreInv({ ...formCierreInv, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">TRM Aplicada</label><input type="number" step="any" required value={formCierreInv.tasaTRM} onChange={e => setFormCierreInv({ ...formCierreInv, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Liquidar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'holdingEntrada' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarHoldingEntrada} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">💎 Comprar Holding</h3>
+                                <div><label className="text-xs text-neutral-400">Activo</label><input type="text" required value={formHoldingEntrada.activo} onChange={e => setFormHoldingEntrada({ ...formHoldingEntrada, activo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold" /></div>
+                                <div><label className="text-xs text-cyan-400 font-bold">Monto (USD)</label><input type="number" step="any" required value={formHoldingEntrada.montoUSD} onChange={e => setFormHoldingEntrada({ ...formHoldingEntrada, montoUSD: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">TRM Entrada</label><input type="number" step="any" required value={formHoldingEntrada.trmEntrada} onChange={e => setFormHoldingEntrada({ ...formHoldingEntrada, trmEntrada: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'holdingSalida' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={ejecutarSalidaHolding} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">💸 Vender Holding</h3>
+                                <div><label className="text-xs text-cyan-400 font-bold">Monto Recibido (USD)</label><input type="number" step="any" required value={formHoldingSalida.montoUSDSalida} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, montoUSDSalida: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">TRM Salida</label><input type="number" step="any" required value={formHoldingSalida.trmSalida} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, trmSalida: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Destino</label><select value={formHoldingSalida.cuentaDestinoId} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda !== 'USD').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'prediccion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarPrediccion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">🔮 Predicción</h3>
+                                <div><label className="text-xs text-neutral-400">Activo</label><input type="text" required value={formPrediccion.activo} onChange={e => setFormPrediccion({ ...formPrediccion, activo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold" /></div>
+                                <div><label className="text-xs text-neutral-400">Dirección</label><select value={formPrediccion.direccion} onChange={e => setFormPrediccion({ ...formPrediccion, direccion: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1"><option value="sube">🟢 Sube</option><option value="baja">🔴 Baja</option></select></div>
+                                <div><label className="text-xs text-purple-400 font-bold">Monto (USD)</label><input type="number" step="any" required value={formPrediccion.montoInvertidoUSD} onChange={e => setFormPrediccion({ ...formPrediccion, montoInvertidoUSD: e.target.value })} className="w-full bg-black border border-purple-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Estado</label><select value={formPrediccion.resultado} onChange={e => setFormPrediccion({ ...formPrediccion, resultado: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1"><option value="pendiente">⏳ Pendiente</option><option value="acertada">🎯 Acertada</option><option value="fallida">❌ Fallida</option></select></div>
+                                {formPrediccion.resultado === 'acertada' && <div><label className="text-xs text-emerald-400 font-bold">Retornado (USD)</label><input type="number" step="any" required value={formPrediccion.montoRetornadoUSD} onChange={e => setFormPrediccion({ ...formPrediccion, montoRetornadoUSD: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>}
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-purple-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'cierrePred' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarCierrePred} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">🔒 Cierre Predicciones</h3>
+                                <div><label className="text-xs text-neutral-400">Nombre</label><input type="text" value={formCierrePred.nombre} onChange={e => setFormCierrePred({ ...formCierrePred, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-purple-400 font-bold">TRM Aplicada</label><input type="number" step="any" required value={formCierrePred.tasaTRM} onChange={e => setFormCierrePred({ ...formCierrePred, tasaTRM: e.target.value })} className="w-full bg-black border border-purple-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-purple-500 text-neutral-950 py-3 rounded-xl font-extrabold">Liquidar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'resolverPrediccion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={(e) => { e.preventDefault(); if(formResolverPred.montoRetornadoUSD) resolverPrediccion(formResolverPred.id, 'acertada', formResolverPred.montoRetornadoUSD); setModalVisible(null); }} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-white text-lg">🎯 Predicción Acertada</h3>
+                                <div><label className="text-xs text-emerald-400 font-bold">USD Retornado</label><input type="number" step="any" autoFocus required value={formResolverPred.montoRetornadoUSD} onChange={e => setFormResolverPred({ ...formResolverPred, montoRetornadoUSD: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-emerald-400 font-black text-xl rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'anularCierre' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={procesarAnulacionCierre} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-red-500 text-lg">⚠️ Anular Liquidación</h3>
+                                <div><label className="text-xs text-neutral-400 font-bold">Motivo</label><input type="text" autoFocus required value={formAnularCierre.razon} onChange={e => setFormAnularCierre({ ...formAnularCierre, razon: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-neutral-800 text-neutral-300 py-3 rounded-xl font-bold">Cancelar</button><button type="submit" className="w-1/2 bg-red-600 text-white py-3 rounded-xl font-extrabold">Anular Cierre</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'editarCierre' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60] overflow-y-auto">
+                            <form onSubmit={procesarEdicionCierre} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-white text-lg">✏️ Editar Cierre</h3>
+                                <div><label className="text-xs text-neutral-400">Nombre</label><input type="text" required value={formEditCierre.nombre} onChange={e => setFormEditCierre({ ...formEditCierre, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-amber-400 font-bold">TRM Aplicada</label><input type="number" step="any" required value={formEditCierre.tasaTRM} onChange={e => setFormEditCierre({ ...formEditCierre, tasaTRM: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-black text-xl rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar Ajuste</button></div>
+                            </form>
+                        </div>
+                    )}
+
                     {modalVisible === 'abonoDeuda' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={abonarDeuda} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">Pagar Cuota de Deuda</h3>
-                                <p className="text-xs text-neutral-400">El dinero saldrá de la cuenta que elijas y se registrará como egreso en tu flujo de caja.</p>
-                                <div><label className="text-xs text-neutral-400">Monto a pagar</label><input type="number" required value={formAbonoDeuda.monto} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
-                                <div><label className="text-xs text-red-400 font-bold">Sacar plata desde:</label><select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-red-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formAbonoDeuda.monto} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
+                                <div><label className="text-xs text-red-400 font-bold">Sacar plata de:</label><select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-red-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-red-600 text-white py-3 rounded-xl font-extrabold">Abonar</button></div>
                             </form>
                         </div>
@@ -629,14 +1346,70 @@
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={recibirAbonoCobro} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">Recibir Pago de Cartera</h3>
-                                <p className="text-xs text-neutral-400">El dinero entrará a la cuenta que elijas y se registrará como ingreso en tu flujo de caja.</p>
-                                <div><label className="text-xs text-neutral-400">Monto recuperado</label><input type="number" required value={formAbonoCobro.monto} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formAbonoCobro.monto} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
                                 <div><label className="text-xs text-cyan-400 font-bold">Ingresar plata a:</label><select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Recibir</button></div>
                             </form>
                         </div>
                     )}
 
+                    {modalVisible === 'deuda' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarDeuda} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">Registrar Deuda</h3>
+                                <div><label className="text-xs text-neutral-400">Entidad</label><input type="text" required value={formDeuda.entidad} onChange={e => setFormDeuda({ ...formDeuda, entidad: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Concepto</label><input type="text" required value={formDeuda.concepto} onChange={e => setFormDeuda({ ...formDeuda, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formDeuda.montoOriginal} onChange={e => setFormDeuda({ ...formDeuda, montoOriginal: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-red-600 text-white py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'porCobrar' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarPorCobrar} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">Registrar Préstamo</h3>
+                                <div><label className="text-xs text-neutral-400">Deudor</label><input type="text" required value={formPorCobrar.deudor} onChange={e => setFormPorCobrar({ ...formPorCobrar, deudor: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Concepto</label><input type="text" required value={formPorCobrar.concepto} onChange={e => setFormPorCobrar({ ...formPorCobrar, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formPorCobrar.montoOriginal} onChange={e => setFormPorCobrar({ ...formPorCobrar, montoOriginal: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'destinacion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={guardarDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">Destinación</h3>
+                                <div><label className="text-xs text-neutral-400">Nombre</label><input type="text" required value={formDestino.nombre} onChange={e => setFormDestino({ ...formDestino, nombre: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formDestino.monto} onChange={e => setFormDestino({ ...formDestino, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
+                                <div><label className="text-xs text-neutral-400">Descripción</label><input type="text" value={formDestino.descripcion} onChange={e => setFormDestino({ ...formDestino, descripcion: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'ejecutarDestinacion' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={ejecutarPagoDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⚡ Ejecutar Gasto Destinado</h3>
+                                <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formEjecutarDestino.monto} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
+                                <div><label className="text-xs text-emerald-400 font-bold">Cuenta de salida</label><select value={formEjecutarDestino.cuentaId} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Pagar</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {modalVisible === 'transferirUtilidad' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={transferirUtilidadBinance} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
+                                <h3 className="font-bold text-white text-lg">⇄ Transferir Utilidad</h3>
+                                <div><label className="text-xs text-emerald-400 font-bold">Monto (COP)</label><input type="number" required value={formTransferUtilidad.montoCOP} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, montoCOP: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
+                                <div><label className="text-xs text-neutral-400">Destino</label><select value={formTransferUtilidad.cuentaDestinoId} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Transferir</button></div>
+                            </form>
+                        </div>
+                    )}
                 </div>
             );
         }
