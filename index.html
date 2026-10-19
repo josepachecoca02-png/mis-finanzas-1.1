@@ -16,7 +16,7 @@
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
-        .safe-bottom-margin-btn { bottom: max(96px, calc(80px + env(safe-area-inset-bottom))); }
+        .safe-bottom-margin-btn { bottom: max(100px, calc(88px + env(safe-area-inset-bottom))); }
     </style>
     <script>
         document.addEventListener('contextmenu', event => event.preventDefault());
@@ -33,6 +33,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
+        // LLAVES DE SUPABASE INTEGRADAS
         const SUPABASE_URL = "https://hvjlkjyyyjqebibtffkl.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_ags0yzMs4NRe4nBGbIGN-g_YiFX_r9_";
 
@@ -87,7 +88,7 @@
             const clienteSupabase = useRef(null);
             const inputFileRef = useRef(null);
 
-            // API BINANCE
+            // API BINANCE (EN VIVO)
             useEffect(() => {
                 const fetchUSDT = async () => {
                     try {
@@ -125,7 +126,7 @@
 
             const manejarLogin = async (e) => {
                 e.preventDefault();
-                if (!clienteSupabase.current) return setErrorAuth("Faltan llaves de Supabase en el código");
+                if (!clienteSupabase.current) return setErrorAuth("Faltan llaves de Supabase");
                 setErrorAuth(''); setCargandoAuth(true);
                 const { error } = await clienteSupabase.current.auth.signInWithPassword({ email: emailLogin, password: passLogin });
                 if (error) { setErrorAuth('❌ Correo o contraseña incorrectos'); setCargandoAuth(false); }
@@ -191,7 +192,7 @@
 
             const listaCuentas = useMemo(() => (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS, [datos]);
 
-            // CÁLCULOS
+            // CÁLCULOS PATRIMONIALES
             const totales = useMemo(() => {
                 const liquidezBrutaCOP = listaCuentas.filter(c => c.moneda === 'COP').reduce((acc, c) => acc + c.saldo, 0);
                 const totalDestinado = (datos?.destinaciones || []).reduce((acc, d) => acc + (d.monto || 0), 0);
@@ -647,18 +648,27 @@
             }
 
             const rubros = [
-                { id: 'inicio', etiqueta: '🏛️ Balance', corto: 'Balance' },
-                { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas' },
-                { id: 'inversiones', etiqueta: '📈 Inversiones', corto: 'Trades' },
-                { id: 'deudas', etiqueta: '🔴 Deudas', corto: 'Deudas' },
-                { id: 'porCobrar', etiqueta: '🟢 Cartera', corto: 'Cartera' },
-                { id: 'destinaciones', etiqueta: '🎯 Destinos', corto: 'Destinos' },
-                { id: 'movimientos', etiqueta: '📜 Flujo Caja', corto: 'Flujo' }
+                { id: 'inicio', etiqueta: '🏛️ Balance', corto: 'Balance', icono: '🏛️' },
+                { id: 'cuentas', etiqueta: '💳 Cuentas', corto: 'Cuentas', icono: '💳' },
+                { id: 'inversiones', etiqueta: '📈 Inversiones', corto: 'Trades', icono: '📈' },
+                { id: 'deudas', etiqueta: '🔴 Deudas', corto: 'Deudas', icono: '🔴' },
+                { id: 'porCobrar', etiqueta: '🟢 Cartera', corto: 'Cartera', icono: '🟢' },
+                { id: 'destinaciones', etiqueta: '🎯 Destinos', corto: 'Destinos', icono: '🎯' },
+                { id: 'movimientos', etiqueta: '📜 Flujo', corto: 'Flujo', icono: '📜' }
             ];
 
             return (
-                <div className="flex flex-col min-h-screen bg-black text-neutral-100">
+                <div className="flex flex-col min-h-screen bg-black text-neutral-100 relative">
                     <input type="file" ref={inputFileRef} onChange={importarBackupJSON} accept=".json" className="hidden" />
+
+                    {/* BURBUJA FLOTANTE USDT EN VIVO (SOLO MÓVIL) */}
+                    <div className="md:hidden fixed top-[72px] right-3 z-40 bg-neutral-900/80 backdrop-blur-md border border-emerald-500/30 px-3 py-1.5 rounded-full flex items-center gap-2 shadow-2xl">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-[10px] font-black text-amber-400 font-mono tracking-wide">USDT ${precioUSDT.toLocaleString('es-CO')}</span>
+                    </div>
 
                     {notificacion && (
                         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl border backdrop-blur-md transition-all ${notificacion.tipo === 'exito' ? 'bg-emerald-950/90 text-emerald-400 border-emerald-500/40' : 'bg-red-950/90 text-red-400 border-red-500/40'}`}>
@@ -706,18 +716,19 @@
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
                             <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
                                 {rubros.map(r => (
-                                    <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex-1 py-3 px-2 text-center text-[11px] font-extrabold transition border-b-2 ${rubroActivo === r.id ? 'border-emerald-500 text-emerald-400 bg-neutral-900/50' : 'border-transparent text-neutral-400 hover:text-white'}`}>{r.etiqueta}</button>
+                                    <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex-1 py-3 px-2 text-center text-xs md:text-sm font-extrabold transition border-b-2 ${rubroActivo === r.id ? 'border-emerald-500 text-emerald-400 bg-neutral-900/50' : 'border-transparent text-neutral-400 hover:text-white'}`}>{r.etiqueta}</button>
                                 ))}
                             </div>
                         </div>
                     </header>
 
-                    <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-3.5 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-xl">➕</button>
+                    <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-4 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-2xl flex items-center justify-center w-14 h-14">➕</button>
 
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-7 gap-0.5 z-40">
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-7 gap-0 z-40">
                         {rubros.map(r => (
-                            <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex flex-col items-center justify-center py-2 px-0.5 rounded-xl transition ${rubroActivo === r.id ? 'text-emerald-400 bg-neutral-900 font-extrabold' : 'text-neutral-400'}`}>
-                                <span className="text-[9px] leading-tight text-center truncate w-full">{r.corto}</span>
+                            <button key={r.id} onClick={() => cambiarRubro(r.id)} className={`flex flex-col items-center justify-center py-2.5 px-0.5 transition ${rubroActivo === r.id ? 'text-emerald-400 bg-neutral-900 rounded-xl font-extrabold' : 'text-neutral-400'}`}>
+                                <span className="text-lg mb-0.5">{r.icono}</span>
+                                <span className="text-[10px] leading-tight text-center truncate w-full tracking-tighter">{r.corto}</span>
                             </button>
                         ))}
                     </nav>
@@ -726,17 +737,51 @@
                         
                         {rubroActivo === 'inicio' && (
                             <div className="space-y-6">
-                                {/* DASHBOARD PATRIMONIAL */}
-                                <div className="bg-gradient-to-br from-neutral-900 via-neutral-900 to-emerald-950/20 border border-emerald-500/30 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 bg-emerald-500/10 text-emerald-400 text-[10px] font-black px-3 py-1 rounded-bl-xl border-l border-b border-emerald-500/30 uppercase">Ecuación Patrimonial</div>
+                                {/* DASHBOARD PATRIMONIAL ACTUALIZADO */}
+                                <div className="bg-gradient-to-br from-neutral-900 via-neutral-900 to-emerald-950/20 border border-emerald-500/30 rounded-3xl p-5 md:p-6 shadow-2xl relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 bg-emerald-500/10 text-emerald-400 text-[10px] font-black px-3 py-1 rounded-bl-xl border-l border-b border-emerald-500/30 uppercase tracking-widest">Ecuación Patrimonial</div>
                                     <span className="text-xs font-bold text-neutral-400 uppercase">Patrimonio Neto Real (COP)</span>
-                                    <div className="text-4xl md:text-6xl font-black text-white mt-1">{formatearMoneda(totales.patrimonioNetoCOP, 'COP')}</div>
+                                    <div className="text-4xl md:text-6xl font-black text-white mt-1 mb-6">{formatearMoneda(totales.patrimonioNetoCOP, 'COP')}</div>
                                     
-                                    <div className="mt-6 pt-4 border-t border-neutral-800/80 grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div><div className="text-[10px] text-neutral-500 uppercase font-bold">1. Liquidez Total</div><div className="text-sm font-black text-emerald-400">{formatearMoneda(totales.liquidezBrutaCOP, 'COP')}</div><div className="text-[9px] text-neutral-400 mt-0.5">({formatearMoneda(totales.liquidezLibreCOP, 'COP')} Libres)</div></div>
-                                        <div><div className="text-[10px] text-neutral-500 uppercase font-bold">2. Inversiones (En Vivo)</div><div className="text-sm font-black text-amber-400">{formatearMoneda(totales.totalInversionesCOP, 'COP')}</div><div className="text-[9px] text-neutral-400 mt-0.5">({formatearMoneda(totales.totalInversionesUSD, 'USD')})</div></div>
-                                        <div><div className="text-[10px] text-neutral-500 uppercase font-bold">3. Cartera Activa</div><div className="text-sm font-black text-cyan-400">{formatearMoneda(totales.carteraActiva, 'COP')}</div><div className="text-[9px] text-neutral-400 mt-0.5">Plata en la calle</div></div>
-                                        <div><div className="text-[10px] text-neutral-500 uppercase font-bold">4. Pasivos (Deudas)</div><div className="text-sm font-black text-red-500">-{formatearMoneda(totales.pasivosTotales, 'COP')}</div><div className="text-[9px] text-neutral-400 mt-0.5">Dinero comprometido</div></div>
+                                    <div className="pt-4 border-t border-neutral-800/80 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        
+                                        {/* 1. SUB-ECUACIÓN DE LIQUIDEZ */}
+                                        <div className="bg-black/50 border border-neutral-800 p-4 rounded-2xl flex flex-col justify-between">
+                                            <div className="text-[10px] text-neutral-500 uppercase font-black tracking-wider mb-3">1. Análisis de Liquidez (Efectivo & Bancos)</div>
+                                            
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-neutral-300 font-bold">Liquidez Bruta</span>
+                                                    <span className="font-black text-white">{formatearMoneda(totales.liquidezBrutaCOP, 'COP')}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs border-b border-neutral-800 pb-2">
+                                                    <span className="text-red-400 font-bold">(-) Reservas (Destinos Intocables)</span>
+                                                    <span className="font-black text-red-400">-{formatearMoneda(totales.totalDestinado, 'COP')}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-1">
+                                                    <span className="text-[10px] text-emerald-400 font-black uppercase">(=) Disponible Libre Real</span>
+                                                    <span className="text-sm font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30">{formatearMoneda(totales.liquidezLibreCOP, 'COP')}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-black/50 border border-neutral-800 p-3.5 rounded-2xl flex flex-col justify-center">
+                                                <div className="text-[10px] text-neutral-500 uppercase font-bold">2. Inversiones (En Vivo)</div>
+                                                <div className="text-sm font-black text-amber-400">{formatearMoneda(totales.totalInversionesCOP, 'COP')}</div>
+                                                <div className="text-[9px] text-neutral-400 mt-0.5">({formatearMoneda(totales.totalInversionesUSD, 'USD')})</div>
+                                            </div>
+                                            <div className="bg-black/50 border border-neutral-800 p-3.5 rounded-2xl flex flex-col justify-center">
+                                                <div className="text-[10px] text-neutral-500 uppercase font-bold">3. Cartera Activa</div>
+                                                <div className="text-sm font-black text-cyan-400">{formatearMoneda(totales.carteraActiva, 'COP')}</div>
+                                                <div className="text-[9px] text-neutral-400 mt-0.5">Plata en la calle</div>
+                                            </div>
+                                            <div className="bg-black/50 border border-neutral-800 p-3.5 rounded-2xl flex flex-col justify-center col-span-2">
+                                                <div className="text-[10px] text-neutral-500 uppercase font-bold">4. Pasivos (Deudas)</div>
+                                                <div className="text-sm font-black text-red-500">-{formatearMoneda(totales.pasivosTotales, 'COP')}</div>
+                                                <div className="text-[9px] text-neutral-400 mt-0.5">Dinero comprometido que hay que pagar</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1189,7 +1234,7 @@
                         )}
                     </main>
 
-                    {/* MODALES CLAVE */}
+                    {/* MODALES */}
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
