@@ -11,14 +11,12 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: auto; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: auto; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
         .safe-bottom-margin-btn { bottom: max(100px, calc(88px + env(safe-area-inset-bottom))); }
-        /* PARCHE DE INTERACCIÓN: Desbloquea listas desplegables y campos de texto */
-        input, select, textarea { -webkit-user-select: auto !important; user-select: auto !important; pointer-events: auto !important; cursor: pointer; }
     </style>
     <script>
         document.addEventListener('contextmenu', event => event.preventDefault());
@@ -29,7 +27,7 @@
         }
     </script>
 </head>
-<body class="bg-black text-neutral-100 min-h-screen pb-48 md:pb-6 select-none">
+<body class="bg-black text-neutral-100 min-h-screen pb-48 md:pb-6">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -192,7 +190,14 @@
                 }
             };
 
-            const listaCuentas = useMemo(() => (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS, [datos]);
+            // PARCHE DE RETROCOMPATIBILIDAD: Asegura que todas las cuentas tengan una moneda asignada
+            const listaCuentas = useMemo(() => {
+                let list = (datos?.cuentas && datos.cuentas.length > 0) ? datos.cuentas : CUENTAS_PREDETERMINADAS;
+                return list.map(c => ({
+                    ...c,
+                    moneda: c.moneda || (c.id === 'c5' || c.id === 'c6' ? 'USD' : 'COP') // Asigna COP por defecto a cuentas antiguas
+                }));
+            }, [datos]);
 
             // CÁLCULOS PATRIMONIALES
             const totales = useMemo(() => {
@@ -276,22 +281,22 @@
             }, [datos.predicciones]);
 
             // ESTADOS FORMULARIOS
-            const [formP2P, setFormP2P] = useState({ tipo: 'compra', cuentaCOPId: 'c3', cuentaUSDId: 'c5', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() });
-            const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
+            const [formP2P, setFormP2P] = useState({ tipo: 'compra', cuentaCOPId: '', cuentaUSDId: '', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() });
+            const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: '', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() });
             const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formPorCobrar, setFormPorCobrar] = useState({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() });
             const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
-            const [formEjecutarDestino, setFormEjecutarDestino] = useState({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
-            const [formTransfer, setFormTransfer] = useState({ cuentaOrigenId: 'c3', cuentaDestinoId: 'c2', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
-            const [formAjusteSaldo, setFormAjusteSaldo] = useState({ cuentaId: 'c1', nuevoSaldo: '', nota: '', clasificacion: 'Descuadre injustificado', fechaHora: obtenerFechaHoraActual() });
+            const [formEjecutarDestino, setFormEjecutarDestino] = useState({ destinacionId: '', cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() });
+            const [formTransfer, setFormTransfer] = useState({ cuentaOrigenId: '', cuentaDestinoId: '', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
+            const [formAjusteSaldo, setFormAjusteSaldo] = useState({ cuentaId: '', nuevoSaldo: '', nota: '', clasificacion: 'Descuadre injustificado', fechaHora: obtenerFechaHoraActual() });
             
             const [formTrade, setFormTrade] = useState({ id: null, par: 'BTC/USDT', resultado: 'gain', montoUSD: '', estrategia: '', fechaHora: obtenerFechaHoraActual() });
             const [formCierreInv, setFormCierreInv] = useState({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT });
-            const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: 'c2', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
+            const [formTransferUtilidad, setFormTransferUtilidad] = useState({ cuentaDestinoId: '', montoCOP: '', fechaHora: obtenerFechaHoraActual() });
             const [formHoldingEntrada, setFormHoldingEntrada] = useState({ id: null, activo: 'BTC', montoUSD: '', trmEntrada: precioUSDT, fechaHora: obtenerFechaHoraActual() });
-            const [formHoldingSalida, setFormHoldingSalida] = useState({ holdingId: '', montoUSDSalida: '', trmSalida: precioUSDT, cuentaDestinoId: 'c3', fechaHora: obtenerFechaHoraActual() });
+            const [formHoldingSalida, setFormHoldingSalida] = useState({ holdingId: '', montoUSDSalida: '', trmSalida: precioUSDT, cuentaDestinoId: '', fechaHora: obtenerFechaHoraActual() });
             const [formPrediccion, setFormPrediccion] = useState({ id: null, activo: 'BTC/USDT', direccion: 'sube', montoInvertidoUSD: '', resultado: 'pendiente', montoRetornadoUSD: '', cuentaId: 'c6', fechaHora: obtenerFechaHoraActual() });
             const [formCierrePred, setFormCierrePred] = useState({ tipo: 'semanal', nombre: '', tasaTRM: precioUSDT });
             const [formAnularCierre, setFormAnularCierre] = useState({ id: '', tipo: '', razon: '' });
@@ -307,7 +312,7 @@
 
                 const cCOP = listaCuentas.find(c => c.id === formP2P.cuentaCOPId);
                 const cUSD = listaCuentas.find(c => c.id === formP2P.cuentaUSDId);
-                if (!cCOP || !cUSD) return;
+                if (!cCOP || !cUSD) return mostrarNotificacion("Falta seleccionar cuenta", 'error');
 
                 const trm = (mCOP / mUSD).toFixed(2);
                 let cuentasAct = [...listaCuentas];
@@ -398,6 +403,7 @@
                 e.preventDefault();
                 const montoNum = parseFloat(formMov.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (!formMov.cuentaId) return mostrarNotificacion("Selecciona una cuenta", 'error');
                 let cuentasAct = [...listaCuentas];
                 let movsAct = [...(datos.movimientos || [])];
                 
@@ -430,6 +436,7 @@
                 e.preventDefault();
                 const montoNum = parseFloat(formTransfer.monto);
                 if (isNaN(montoNum) || montoNum <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (!formTransfer.cuentaOrigenId || !formTransfer.cuentaDestinoId) return mostrarNotificacion("Selecciona las cuentas", 'error');
                 if (formTransfer.cuentaOrigenId === formTransfer.cuentaDestinoId) return mostrarNotificacion("Cuentas deben ser diferentes", 'error');
                 const origen = listaCuentas.find(c => c.id === formTransfer.cuentaOrigenId);
                 const destino = listaCuentas.find(c => c.id === formTransfer.cuentaDestinoId);
@@ -470,6 +477,7 @@
             const ejecutarPagoDestinacion = (e) => {
                 e.preventDefault();
                 const monto = parseFloat(formEjecutarDestino.monto);
+                if (!formEjecutarDestino.cuentaId) return mostrarNotificacion("Selecciona una cuenta", 'error');
                 const dest = (datos.destinaciones || []).find(d => d.id === formEjecutarDestino.destinacionId);
                 if (!dest || isNaN(monto)) return;
                 const cuentasAct = listaCuentas.map(c => c.id === formEjecutarDestino.cuentaId ? { ...c, saldo: c.saldo - monto } : c);
@@ -528,6 +536,7 @@
                 e.preventDefault();
                 const monto = parseFloat(formTransferUtilidad.montoCOP);
                 if (isNaN(monto) || monto <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (!formTransferUtilidad.cuentaDestinoId) return mostrarNotificacion("Selecciona un destino", 'error');
                 const cBinance = listaCuentas.find(c => c.id === 'c5');
                 if (!cBinance || (cBinance.saldoCOP || 0) < monto) return mostrarNotificacion("Saldo insuficiente", 'error');
                 const cuentasAct = listaCuentas.map(c => {
@@ -564,6 +573,7 @@
                 e.preventDefault();
                 const montoSalida = parseFloat(formHoldingSalida.montoUSDSalida);
                 const trmSalida = parseFloat(formHoldingSalida.trmSalida);
+                if (!formHoldingSalida.cuentaDestinoId) return mostrarNotificacion("Selecciona un destino", 'error');
                 const h = (datos.holdings || []).find(x => x.id === formHoldingSalida.holdingId);
                 const retornadoCOP = montoSalida * trmSalida;
                 const gananciaNetaCOP = retornadoCOP - h.costoCOP;
@@ -783,10 +793,10 @@
                                 <button onClick={() => setOcultarSaldos(!ocultarSaldos)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">{ocultarSaldos ? '👁️‍🗨️' : '👁️'}</button>
                                 
                                 {/* NUEVO BOTÓN CAMBIO P2P */}
-                                <button onClick={() => { setFormP2P({ tipo: 'compra', cuentaCOPId: listaCuentas.find(c=>c.moneda==='COP')?.id || 'c3', cuentaUSDId: listaCuentas.find(c=>c.moneda==='USD')?.id || 'c5', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('cambioP2P'); }} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">💱 P2P</button>
+                                <button onClick={() => { setFormP2P({ tipo: 'compra', cuentaCOPId: '', cuentaUSDId: '', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('cambioP2P'); }} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">💱 P2P</button>
                                 
-                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition hidden sm:block">⇄ Transferir</button>
-                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold">+ Mov</button>
+                                <button onClick={() => { setFormTransfer({ cuentaOrigenId: '', cuentaDestinoId: '', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferencia'); }} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition hidden sm:block">⇄ Transferir</button>
+                                <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: '', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold">+ Mov</button>
                             </div>
                         </div>
                         <div className="hidden md:block bg-neutral-950 border-t border-neutral-900/80">
@@ -798,9 +808,9 @@
                         </div>
                     </header>
 
-                    <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-4 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-2xl flex items-center justify-center w-14 h-14">➕</button>
-                    {/* BOTÓN TRANSFERIR EN MÓVIL (Como lo movimos del header principal por espacio) */}
-                    <button onClick={() => setModalVisible('transferencia')} className="md:hidden fixed safe-bottom-margin-btn right-20 z-40 bg-neutral-800 hover:bg-neutral-700 text-white p-4 rounded-full shadow-2xl backdrop-blur-md border border-neutral-600 font-black text-xl flex items-center justify-center w-14 h-14">⇄</button>
+                    <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: '', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-4 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-2xl flex items-center justify-center w-14 h-14">➕</button>
+                    {/* BOTÓN TRANSFERIR EN MÓVIL */}
+                    <button onClick={() => { setFormTransfer({ cuentaOrigenId: '', cuentaDestinoId: '', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferencia'); }} className="md:hidden fixed safe-bottom-margin-btn right-20 z-40 bg-neutral-800 hover:bg-neutral-700 text-white p-4 rounded-full shadow-2xl backdrop-blur-md border border-neutral-600 font-black text-xl flex items-center justify-center w-14 h-14">⇄</button>
 
                     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-7 gap-0 z-40">
                         {rubros.map(r => (
@@ -886,7 +896,7 @@
                                                         <div className="flex justify-between border-t border-neutral-800 pt-1"><span className="text-neutral-400">Utilidad Liquidada COP:</span><span className="font-black text-emerald-400">{formatearMoneda(c.saldoCOP || 0, 'COP')}</span></div>
                                                     </div>
                                                     {(c.saldoCOP || 0) > 0 && (
-                                                        <button onClick={() => { setFormTransferUtilidad({ cuentaDestinoId: 'c2', montoCOP: c.saldoCOP, fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferirUtilidad'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30">⇄ Transferir Utilidad (COP)</button>
+                                                        <button onClick={() => { setFormTransferUtilidad({ cuentaDestinoId: '', montoCOP: c.saldoCOP, fechaHora: obtenerFechaHoraActual() }); setModalVisible('transferirUtilidad'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-bold py-2 rounded-xl border border-emerald-500/30">⇄ Transferir Utilidad (COP)</button>
                                                     )}
                                                 </div>
                                             );
@@ -1019,7 +1029,7 @@
                                                                 <div><span className="text-neutral-400">TRM Ent:</span> <strong className="text-amber-400">${h.trmEntrada}</strong></div>
                                                                 <div className="col-span-2 border-t border-neutral-800 pt-1"><span className="text-neutral-400">Costo COP:</span> <strong className="text-neutral-200">{formatearMoneda(h.costoCOP, 'COP')}</strong></div>
                                                             </div>
-                                                            <button onClick={() => { setFormHoldingSalida({ holdingId: h.id, montoUSDSalida: h.montoUSD, trmSalida: precioUSDT, cuentaDestinoId: listaCuentas[0]?.id || 'c3', fechaHora: obtenerFechaHoraActual() }); setModalVisible('holdingSalida'); }} className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold py-2.5 rounded-xl border border-cyan-500/30">💸 Vender</button>
+                                                            <button onClick={() => { setFormHoldingSalida({ holdingId: h.id, montoUSDSalida: h.montoUSD, trmSalida: precioUSDT, cuentaDestinoId: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('holdingSalida'); }} className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold py-2.5 rounded-xl border border-cyan-500/30">💸 Vender</button>
                                                         </div>
                                                     ))
                                                 )}
@@ -1273,7 +1283,7 @@
                                                     </div>
                                                 </div>
                                                 <div className="flex justify-between items-end border-t border-neutral-800 pt-2"><span className="text-xs text-neutral-400">Reservado</span><div className="text-xl font-black text-emerald-400">{formatearMoneda(d.monto, 'COP')}</div></div>
-                                                <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-extrabold py-2.5 rounded-xl border border-emerald-500/30">⚡ Pagar / Ejecutar Gasto</button>
+                                                <button onClick={() => { setFormEjecutarDestino({ destinacionId: d.id, cuentaId: '', monto: d.monto, fechaHora: obtenerFechaHoraActual() }); setModalVisible('ejecutarDestinacion'); }} className="w-full bg-emerald-500/10 text-emerald-400 text-xs font-extrabold py-2.5 rounded-xl border border-emerald-500/30">⚡ Pagar / Ejecutar Gasto</button>
                                             </div>
                                         ))
                                     )}
@@ -1339,13 +1349,15 @@
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-xs text-neutral-400 font-bold">Cuenta COP</label>
-                                        <select value={formP2P.cuentaCOPId} onChange={e => setFormP2P({ ...formP2P, cuentaCOPId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <select required value={formP2P.cuentaCOPId} onChange={e => setFormP2P({ ...formP2P, cuentaCOPId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                            <option value="" disabled>-- Cuenta --</option>
                                             {listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                         </select>
                                     </div>
                                     <div>
                                         <label className="text-xs text-neutral-400 font-bold">Cuenta USD</label>
-                                        <select value={formP2P.cuentaUSDId} onChange={e => setFormP2P({ ...formP2P, cuentaUSDId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <select required value={formP2P.cuentaUSDId} onChange={e => setFormP2P({ ...formP2P, cuentaUSDId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                            <option value="" disabled>-- Cuenta --</option>
                                             {listaCuentas.filter(c => c.moneda === 'USD').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                         </select>
                                     </div>
@@ -1383,7 +1395,13 @@
                                 <h3 className="font-bold text-white text-lg">Nuevo Movimiento de Caja</h3>
                                 <div><label className="text-xs text-neutral-400">Tipo</label><select value={formMov.tipo} onChange={e => setFormMov({ ...formMov, tipo: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold"><option value="ingreso">🟢 Ingreso</option><option value="egreso">🔴 Egreso</option></select></div>
                                 <div><label className="text-xs text-neutral-400">Categoría (Auditoría)</label><select value={formMov.categoria} onChange={e => setFormMov({ ...formMov, categoria: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{CATEGORIAS_MOV.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
-                                <div><label className="text-xs text-emerald-400 font-bold">Cuenta Billetera</label><select value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Cuenta Billetera</label>
+                                    <select required value={formMov.cuentaId} onChange={e => setFormMov({ ...formMov, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Selecciona cuenta --</option>
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div><label className="text-xs text-neutral-400">Concepto Libre</label><input type="text" required value={formMov.concepto} onChange={e => setFormMov({ ...formMov, concepto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1" /></div>
                                 <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formMov.monto} onChange={e => setFormMov({ ...formMov, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Guardar</button></div>
@@ -1395,8 +1413,20 @@
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={realizarTransferencia} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">⇄ Transferir</h3>
-                                <div><label className="text-xs text-neutral-400">Origen</label><select value={formTransfer.cuentaOrigenId} onChange={e => setFormTransfer({ ...formTransfer, cuentaOrigenId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
-                                <div><label className="text-xs text-emerald-400 font-bold">Destino</label><select value={formTransfer.cuentaDestinoId} onChange={e => setFormTransfer({ ...formTransfer, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Origen</label>
+                                    <select required value={formTransfer.cuentaOrigenId} onChange={e => setFormTransfer({ ...formTransfer, cuentaOrigenId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Sale de --</option>
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Destino</label>
+                                    <select required value={formTransfer.cuentaDestinoId} onChange={e => setFormTransfer({ ...formTransfer, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Entra a --</option>
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formTransfer.monto} onChange={e => setFormTransfer({ ...formTransfer, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Transferir</button></div>
                             </form>
@@ -1457,7 +1487,13 @@
                                 <h3 className="font-bold text-white text-lg">💸 Vender Holding</h3>
                                 <div><label className="text-xs text-cyan-400 font-bold">Monto Recibido (USD)</label><input type="number" step="any" required value={formHoldingSalida.montoUSDSalida} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, montoUSDSalida: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
                                 <div><label className="text-xs text-amber-400 font-bold">TRM Salida</label><input type="number" step="any" required value={formHoldingSalida.trmSalida} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, trmSalida: e.target.value })} className="w-full bg-black border border-amber-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
-                                <div><label className="text-xs text-neutral-400">Destino</label><select value={formHoldingSalida.cuentaDestinoId} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda !== 'USD').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Destino</label>
+                                    <select required value={formHoldingSalida.cuentaDestinoId} onChange={e => setFormHoldingSalida({ ...formHoldingSalida, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Entra a --</option>
+                                        {listaCuentas.filter(c => c.moneda !== 'USD').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar</button></div>
                             </form>
                         </div>
@@ -1594,7 +1630,13 @@
                             <form onSubmit={ejecutarPagoDestinacion} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">⚡ Ejecutar Gasto Destinado</h3>
                                 <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formEjecutarDestino.monto} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-lg" /></div>
-                                <div><label className="text-xs text-emerald-400 font-bold">Cuenta de salida</label><select value={formEjecutarDestino.cuentaId} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-emerald-400 font-bold">Cuenta de salida</label>
+                                    <select required value={formEjecutarDestino.cuentaId} onChange={e => setFormEjecutarDestino({ ...formEjecutarDestino, cuentaId: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Selecciona de dónde sale --</option>
+                                        {listaCuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Pagar</button></div>
                             </form>
                         </div>
@@ -1605,7 +1647,13 @@
                             <form onSubmit={transferirUtilidadBinance} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">⇄ Transferir Utilidad</h3>
                                 <div><label className="text-xs text-emerald-400 font-bold">Monto (COP)</label><input type="number" required value={formTransferUtilidad.montoCOP} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, montoCOP: e.target.value })} className="w-full bg-black border border-emerald-500/50 text-white font-bold text-lg rounded-xl p-3 mt-1" /></div>
-                                <div><label className="text-xs text-neutral-400">Destino</label><select value={formTransferUtilidad.cuentaDestinoId} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-neutral-400">Destino</label>
+                                    <select required value={formTransferUtilidad.cuentaDestinoId} onChange={e => setFormTransferUtilidad({ ...formTransferUtilidad, cuentaDestinoId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Entra a --</option>
+                                        {listaCuentas.filter(c => c.moneda !== 'USD' && c.tipo !== 'Inversión').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-emerald-500 text-neutral-950 py-3 rounded-xl font-extrabold">Transferir</button></div>
                             </form>
                         </div>
