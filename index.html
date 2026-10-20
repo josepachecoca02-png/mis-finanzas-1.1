@@ -37,7 +37,7 @@
         const SUPABASE_URL = "https://hvjlkjyyyjqebibtffkl.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_ags0yzMs4NRe4nBGbIGN-g_YiFX_r9_";
 
-        const CATEGORIAS_MOV = ['General', 'Alimentación', 'Transporte', 'Vivienda y Servicios', 'Ocio y Entretenimiento', 'Salud', 'Educación', 'Préstamo Otorgado', 'Abono a Deuda', 'Cobro Recibido', 'Ingreso Extra', 'Sueldo/Honorarios', 'Fondeo/Retiro Inversión'];
+        const CATEGORIAS_MOV = ['General', 'Alimentación', 'Transporte', 'Vivienda y Servicios', 'Ocio y Entretenimiento', 'Salud', 'Educación', 'Préstamo Otorgado', 'Abono a Deuda', 'Cobro Recibido', 'Ingreso Extra', 'Sueldo/Honorarios', 'Fondeo/Retiro Inversión', 'Intercambio Divisas'];
 
         const obtenerFechaHoraActual = () => {
             const ahora = new Date();
@@ -274,11 +274,12 @@
             }, [datos.predicciones]);
 
             // ESTADOS FORMULARIOS
+            const [formP2P, setFormP2P] = useState({ tipo: 'compra', cuentaCOPId: 'c3', cuentaUSDId: 'c5', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() });
             const [formMov, setFormMov] = useState({ id: null, concepto: '', monto: '', cuentaId: 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() });
             const [formDeuda, setFormDeuda] = useState({ id: null, entidad: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() });
-            const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: 'c3', monto: '', fechaHora: obtenerFechaHoraActual() });
+            const [formAbonoDeuda, setFormAbonoDeuda] = useState({ deudaId: '', cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formPorCobrar, setFormPorCobrar] = useState({ id: null, deudor: '', concepto: '', montoOriginal: '', fechaHora: obtenerFechaHoraActual() });
-            const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: 'c3', monto: '', fechaHora: obtenerFechaHoraActual() });
+            const [formAbonoCobro, setFormAbonoCobro] = useState({ cobroId: '', cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formDestino, setFormDestino] = useState({ id: null, nombre: '', monto: '', descripcion: '' });
             const [formEjecutarDestino, setFormEjecutarDestino] = useState({ destinacionId: '', cuentaId: 'c1', monto: '', fechaHora: obtenerFechaHoraActual() });
             const [formTransfer, setFormTransfer] = useState({ cuentaOrigenId: 'c3', cuentaDestinoId: 'c2', monto: '', concepto: 'Transferencia propia', fechaHora: obtenerFechaHoraActual() });
@@ -295,6 +296,46 @@
             const [formEditCierre, setFormEditCierre] = useState({ id: '', tipo: '', nombre: '', tasaTRM: '' });
             const [formResolverPred, setFormResolverPred] = useState({ id: '', montoRetornadoUSD: '' });
 
+            // FUNCIÓN CAMBIO P2P
+            const ejecutarCambioP2P = (e) => {
+                e.preventDefault();
+                const mCOP = parseFloat(formP2P.montoCOP);
+                const mUSD = parseFloat(formP2P.montoUSD);
+                if (isNaN(mCOP) || mCOP <= 0 || isNaN(mUSD) || mUSD <= 0) return mostrarNotificacion("Montos inválidos", 'error');
+
+                const cCOP = listaCuentas.find(c => c.id === formP2P.cuentaCOPId);
+                const cUSD = listaCuentas.find(c => c.id === formP2P.cuentaUSDId);
+                if (!cCOP || !cUSD) return;
+
+                const trm = (mCOP / mUSD).toFixed(2);
+                let cuentasAct = [...listaCuentas];
+                let nuevosMovs = [];
+
+                if (formP2P.tipo === 'compra') {
+                    if (cCOP.saldo < mCOP) return mostrarNotificacion("Saldo COP insuficiente", 'error');
+                    cuentasAct = cuentasAct.map(c => {
+                        if (c.id === cCOP.id) return { ...c, saldo: c.saldo - mCOP };
+                        if (c.id === cUSD.id) return { ...c, saldo: c.saldo + mUSD };
+                        return c;
+                    });
+                    nuevosMovs.push({ id: 'm_p2p_e_' + Date.now(), fechaHora: formP2P.fechaHora, concepto: `💱 Fondeo P2P hacia ${cUSD.nombre} (TRM: $${trm})`, monto: mCOP, tipo: 'egreso', cuentaId: cCOP.id, categoria: 'Intercambio Divisas', moneda: 'COP' });
+                    nuevosMovs.push({ id: 'm_p2p_i_' + Date.now(), fechaHora: formP2P.fechaHora, concepto: `💱 Compra P2P desde ${cCOP.nombre} (TRM: $${trm})`, monto: mUSD, tipo: 'ingreso', cuentaId: cUSD.id, categoria: 'Intercambio Divisas', moneda: 'USD' });
+                } else {
+                    if (cUSD.saldo < mUSD) return mostrarNotificacion("Saldo USD insuficiente", 'error');
+                    cuentasAct = cuentasAct.map(c => {
+                        if (c.id === cUSD.id) return { ...c, saldo: c.saldo - mUSD };
+                        if (c.id === cCOP.id) return { ...c, saldo: c.saldo + mCOP };
+                        return c;
+                    });
+                    nuevosMovs.push({ id: 'm_p2p_e_' + Date.now(), fechaHora: formP2P.fechaHora, concepto: `💱 Venta P2P hacia ${cCOP.nombre} (TRM: $${trm})`, monto: mUSD, tipo: 'egreso', cuentaId: cUSD.id, categoria: 'Intercambio Divisas', moneda: 'USD' });
+                    nuevosMovs.push({ id: 'm_p2p_i_' + Date.now(), fechaHora: formP2P.fechaHora, concepto: `💱 Retiro P2P desde ${cUSD.nombre} (TRM: $${trm})`, monto: mCOP, tipo: 'ingreso', cuentaId: cCOP.id, categoria: 'Intercambio Divisas', moneda: 'COP' });
+                }
+
+                actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [...nuevosMovs, ...(datos.movimientos || [])] });
+                setModalVisible(null);
+                mostrarNotificacion("💱 Cambio P2P Exitoso");
+            };
+
             // FUNCIONES DEUDAS Y CARTERA
             const guardarDeuda = (e) => {
                 e.preventDefault();
@@ -310,6 +351,7 @@
                 e.preventDefault();
                 const monto = parseFloat(formAbonoDeuda.monto);
                 if (isNaN(monto) || monto <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (!formAbonoDeuda.cuentaId) return mostrarNotificacion("Selecciona una cuenta", 'error');
 
                 const cuentaUsada = listaCuentas.find(c => c.id === formAbonoDeuda.cuentaId);
                 const deudaSel = (datos.deudas || []).find(d => d.id === formAbonoDeuda.deudaId);
@@ -336,6 +378,7 @@
                 e.preventDefault();
                 const monto = parseFloat(formAbonoCobro.monto);
                 if (isNaN(monto) || monto <= 0) return mostrarNotificacion("Monto inválido", 'error');
+                if (!formAbonoCobro.cuentaId) return mostrarNotificacion("Selecciona una cuenta", 'error');
 
                 const cuentaDestino = listaCuentas.find(c => c.id === formAbonoCobro.cuentaId);
                 const cobroSel = (datos.porCobrar || []).find(r => r.id === formAbonoCobro.cobroId);
@@ -406,7 +449,6 @@
                 const diff = nuevo - cuenta.saldo;
                 if (diff === 0) { setModalVisible(null); return; }
                 const cuentasAct = listaCuentas.map(c => c.id === formAjusteSaldo.cuentaId ? { ...c, saldo: nuevo } : c);
-                // INYECCIÓN DE LA CATEGORIZACIÓN CONTABLE
                 const conceptoGenerado = `⚙️ Ajuste (${formAjusteSaldo.clasificacion}): ${formAjusteSaldo.nota}`;
                 const nuevoMov = { id: 'm_aj_' + Date.now(), fechaHora: formAjusteSaldo.fechaHora, concepto: conceptoGenerado, monto: Math.abs(diff), tipo: diff > 0 ? 'ingreso' : 'egreso', cuentaId: formAjusteSaldo.cuentaId, categoria: 'General', moneda: cuenta.moneda };
                 actualizarYGuardar({ ...datos, cuentas: cuentasAct, movimientos: [nuevoMov, ...(datos.movimientos || [])] });
@@ -737,7 +779,11 @@
                                     <span className="text-xs font-black text-amber-400">${precioUSDT.toLocaleString('es-CO')}</span>
                                 </div>
                                 <button onClick={() => setOcultarSaldos(!ocultarSaldos)} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 p-2 rounded-xl text-xs font-bold transition">{ocultarSaldos ? '👁️‍🗨️' : '👁️'}</button>
-                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">⇄ Transferir</button>
+                                
+                                {/* NUEVO BOTÓN CAMBIO P2P */}
+                                <button onClick={() => { setFormP2P({ tipo: 'compra', cuentaCOPId: listaCuentas.find(c=>c.moneda==='COP')?.id || 'c3', cuentaUSDId: listaCuentas.find(c=>c.moneda==='USD')?.id || 'c5', montoCOP: '', montoUSD: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('cambioP2P'); }} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition">💱 P2P</button>
+                                
+                                <button onClick={() => setModalVisible('transferencia')} className="bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 px-2.5 py-2 rounded-xl text-xs font-bold transition hidden sm:block">⇄ Transferir</button>
                                 <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="hidden md:block bg-emerald-500 hover:bg-emerald-400 text-neutral-950 px-3 py-2 rounded-xl text-xs font-extrabold">+ Mov</button>
                             </div>
                         </div>
@@ -751,6 +797,8 @@
                     </header>
 
                     <button onClick={() => { setFormMov({ id: null, concepto: '', monto: '', cuentaId: listaCuentas[0]?.id || 'c1', tipo: 'ingreso', categoria: 'General', fechaHora: obtenerFechaHoraActual() }); setModalVisible('movimiento'); }} className="md:hidden fixed safe-bottom-margin-btn right-4 z-40 bg-emerald-500/90 hover:bg-emerald-400 text-neutral-950 p-4 rounded-full shadow-2xl backdrop-blur-md border border-emerald-400/40 font-black text-2xl flex items-center justify-center w-14 h-14">➕</button>
+                    {/* BOTÓN TRANSFERIR EN MÓVIL (Como lo movimos del header principal por espacio) */}
+                    <button onClick={() => setModalVisible('transferencia')} className="md:hidden fixed safe-bottom-margin-btn right-20 z-40 bg-neutral-800 hover:bg-neutral-700 text-white p-4 rounded-full shadow-2xl backdrop-blur-md border border-neutral-600 font-black text-xl flex items-center justify-center w-14 h-14">⇄</button>
 
                     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-1 pt-2 safe-bottom-padding grid grid-cols-7 gap-0 z-40">
                         {rubros.map(r => (
@@ -1105,7 +1153,7 @@
                                                 <div className="flex justify-between items-end border-t border-neutral-800 pt-2"><div><div className="text-[10px] text-red-400 font-bold uppercase">Saldo Restante</div><div className="text-xl font-black text-white">{formatearMoneda(pend, 'COP')}</div></div></div>
                                                 
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2.5 rounded-xl border border-red-600/30 transition">💸 Abonar Pago</button>
+                                                    <button onClick={() => { setFormAbonoDeuda({ deudaId: d.id, cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoDeuda'); }} className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-500 text-xs font-bold py-2.5 rounded-xl border border-red-600/30 transition">💸 Abonar Pago</button>
                                                     <button onClick={() => toggleHistorial(d.id)} className="px-3 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold">{historialExp[d.id] ? 'Ocultar' : 'Historial'}</button>
                                                 </div>
 
@@ -1168,7 +1216,7 @@
                                                 <div className="flex justify-between items-end border-t border-neutral-800 pt-2"><div><div className="text-[10px] text-cyan-400 font-bold uppercase">Saldo por Cobrar</div><div className="text-xl font-black text-white">{formatearMoneda(pend, 'COP')}</div></div></div>
                                                 
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: listaCuentas[0]?.id || 'c1', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="flex-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold py-2.5 rounded-xl border border-cyan-500/30 transition">📥 Recibir Pago</button>
+                                                    <button onClick={() => { setFormAbonoCobro({ cobroId: r.id, cuentaId: '', monto: '', fechaHora: obtenerFechaHoraActual() }); setModalVisible('abonoCobro'); }} className="flex-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold py-2.5 rounded-xl border border-cyan-500/30 transition">📥 Recibir Pago</button>
                                                     <button onClick={() => toggleHistorial(r.id)} className="px-3 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold">{historialExp[r.id] ? 'Ocultar' : 'Historial'}</button>
                                                 </div>
 
@@ -1274,6 +1322,59 @@
                     </main>
 
                     {/* MODALES */}
+                    
+                    {/* NUEVO MODAL P2P */}
+                    {modalVisible === 'cambioP2P' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={ejecutarCambioP2P} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto shadow-2xl">
+                                <h3 className="font-bold text-white text-lg">💱 Cambio de Divisas (P2P)</h3>
+                                
+                                <div className="flex bg-black rounded-xl p-1 border border-neutral-800 mb-2">
+                                    <button type="button" onClick={() => setFormP2P({...formP2P, tipo: 'compra'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${formP2P.tipo === 'compra' ? 'bg-emerald-500/20 text-emerald-400' : 'text-neutral-500 hover:text-neutral-300'}`}>Comprar USD</button>
+                                    <button type="button" onClick={() => setFormP2P({...formP2P, tipo: 'venta'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${formP2P.tipo === 'venta' ? 'bg-red-500/20 text-red-400' : 'text-neutral-500 hover:text-neutral-300'}`}>Vender USD</button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs text-neutral-400 font-bold">Cuenta COP</label>
+                                        <select value={formP2P.cuentaCOPId} onChange={e => setFormP2P({ ...formP2P, cuentaCOPId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                            {listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-neutral-400 font-bold">Cuenta USD</label>
+                                        <select value={formP2P.cuentaUSDId} onChange={e => setFormP2P({ ...formP2P, cuentaUSDId: e.target.value })} className="w-full bg-black border border-neutral-800 text-white font-bold rounded-xl p-3 mt-1">
+                                            {listaCuentas.filter(c => c.moneda === 'USD').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] text-neutral-500 uppercase font-bold">{formP2P.tipo === 'compra' ? 'Monto Enviado (COP)' : 'Monto a Recibir (COP)'}</label>
+                                        <input type="number" step="any" required value={formP2P.montoCOP} onChange={e => setFormP2P({ ...formP2P, montoCOP: e.target.value })} className={`w-full bg-black border ${formP2P.tipo === 'compra' ? 'border-red-500/30 text-red-400 focus:border-red-500' : 'border-emerald-500/30 text-emerald-400 focus:border-emerald-500'} focus:outline-none font-black text-lg rounded-xl p-3 mt-1 transition`} placeholder="$0" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-neutral-500 uppercase font-bold">{formP2P.tipo === 'compra' ? 'Monto Recibido (USD)' : 'Monto Entregado (USD)'}</label>
+                                        <input type="number" step="any" required value={formP2P.montoUSD} onChange={e => setFormP2P({ ...formP2P, montoUSD: e.target.value })} className={`w-full bg-black border ${formP2P.tipo === 'compra' ? 'border-emerald-500/30 text-emerald-400 focus:border-emerald-500' : 'border-red-500/30 text-red-400 focus:border-red-500'} focus:outline-none font-black text-lg rounded-xl p-3 mt-1 transition`} placeholder="$0.00" />
+                                    </div>
+                                </div>
+
+                                {(formP2P.montoCOP > 0 && formP2P.montoUSD > 0) && (
+                                    <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-amber-500 uppercase font-bold">TRM Calculada a Pagar</div>
+                                        <div className="text-xl font-black text-amber-400">${(formP2P.montoCOP / formP2P.montoUSD).toLocaleString('es-CO', {maximumFractionDigits: 2})}</div>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button>
+                                    <button type="submit" className="w-1/2 bg-amber-500 text-neutral-950 py-3 rounded-xl font-extrabold">Confirmar {formP2P.tipo === 'compra' ? 'Compra' : 'Venta'}</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
                     {modalVisible === 'movimiento' && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <form onSubmit={guardarMovimiento} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
@@ -1421,7 +1522,13 @@
                             <form onSubmit={abonarDeuda} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">Pagar Cuota de Deuda</h3>
                                 <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formAbonoDeuda.monto} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
-                                <div><label className="text-xs text-red-400 font-bold">Sacar plata de:</label><select value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-red-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-red-400 font-bold">Sacar plata de:</label>
+                                    <select required value={formAbonoDeuda.cuentaId} onChange={e => setFormAbonoDeuda({ ...formAbonoDeuda, cuentaId: e.target.value })} className="w-full bg-black border border-red-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Selecciona de dónde sale la plata --</option>
+                                        {listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-red-600 text-white py-3 rounded-xl font-extrabold">Abonar</button></div>
                             </form>
                         </div>
@@ -1432,7 +1539,13 @@
                             <form onSubmit={recibirAbonoCobro} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl max-w-md w-full space-y-4 my-auto">
                                 <h3 className="font-bold text-white text-lg">Recibir Pago de Cartera</h3>
                                 <div><label className="text-xs text-neutral-400">Monto</label><input type="number" required value={formAbonoCobro.monto} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, monto: e.target.value })} className="w-full bg-black border border-neutral-800 text-white rounded-xl p-3 mt-1 font-bold text-xl" /></div>
-                                <div><label className="text-xs text-cyan-400 font-bold">Ingresar plata a:</label><select value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold rounded-xl p-3 mt-1">{listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs text-cyan-400 font-bold">Ingresar plata a:</label>
+                                    <select required value={formAbonoCobro.cuentaId} onChange={e => setFormAbonoCobro({ ...formAbonoCobro, cuentaId: e.target.value })} className="w-full bg-black border border-cyan-500/50 text-white font-bold rounded-xl p-3 mt-1">
+                                        <option value="" disabled>-- Selecciona a dónde entra la plata --</option>
+                                        {listaCuentas.filter(c => c.moneda === 'COP').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
                                 <div className="flex gap-2 pt-2"><button type="button" onClick={() => setModalVisible(null)} className="w-1/2 bg-black text-neutral-300 py-3 rounded-xl font-bold border border-neutral-800">Cancelar</button><button type="submit" className="w-1/2 bg-cyan-500 text-neutral-950 py-3 rounded-xl font-extrabold">Recibir</button></div>
                             </form>
                         </div>
