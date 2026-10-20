@@ -17,6 +17,8 @@
         ::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
         .safe-bottom-margin-btn { bottom: max(100px, calc(88px + env(safe-area-inset-bottom))); }
+        /* PARCHE DE INTERACCIÓN: Desbloquea listas desplegables y campos de texto */
+        input, select, textarea { -webkit-user-select: auto !important; user-select: auto !important; pointer-events: auto !important; cursor: pointer; }
     </style>
     <script>
         document.addEventListener('contextmenu', event => event.preventDefault());
