@@ -18,14 +18,6 @@
         .safe-bottom-padding { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
         .safe-bottom-margin-btn { bottom: max(100px, calc(88px + env(safe-area-inset-bottom))); }
     </style>
-    <script>
-        document.addEventListener('contextmenu', event => event.preventDefault());
-        document.onkeydown = function(e) {
-            if(e.keyCode == 123) return false; 
-            if(e.ctrlKey && e.shiftKey && (e.keyCode == 'I'.charCodeAt(0) || e.keyCode == 'C'.charCodeAt(0) || e.keyCode == 'J'.charCodeAt(0))) return false; 
-            if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false; 
-        }
-    </script>
 </head>
 <body class="bg-black text-neutral-100 min-h-screen pb-48 md:pb-6">
     <div id="root"></div>
@@ -113,12 +105,17 @@
                     if (window.supabase && SUPABASE_URL) {
                         clienteSupabase.current = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                         clienteSupabase.current.auth.getSession().then(({ data: { session } }) => {
-                            setSesion(session); setCargandoAuth(false);
-                            if (session) cargarDesdeSupabase();
+                            setSesion(session); 
+                            setCargandoAuth(false);
+                            if (session) cargarDesdeSupabase(session.user.id);
                         });
                         clienteSupabase.current.auth.onAuthStateChange((_event, session) => {
                             setSesion(session);
-                            if (session) cargarDesdeSupabase(); else setDatos(ESTADO_INICIAL);
+                            if (session) {
+                                cargarDesdeSupabase(session.user.id); 
+                            } else {
+                                setDatos(ESTADO_INICIAL);
+                            }
                         });
                     } else { setCargandoAuth(false); }
                 } catch(e) { setCargandoAuth(false); }
@@ -134,22 +131,50 @@
 
             const cerrarSesion = async () => { await clienteSupabase.current.auth.signOut(); mostrarNotificacion("🔒 Bóveda cerrada"); };
 
-            const cargarDesdeSupabase = async () => {
-                if (!clienteSupabase.current) return;
+            const cargarDesdeSupabase = async (userId) => {
+                if (!clienteSupabase.current || !userId) return;
                 try {
-                    const { data: respuesta, error } = await clienteSupabase.current.from('app_data').select('content').eq('id', 'jose_finanzas').single();
-                    if (error && error.code !== 'PGRST116') return;
+                    const { data: respuesta, error } = await clienteSupabase.current
+                        .from('app_data')
+                        .select('content')
+                        .eq('user_id', userId)
+                        .maybeSingle();
+                        
+                    if (error) {
+                        console.error("Error al cargar:", error);
+                        mostrarNotificacion("Error al sincronizar con la nube", 'error');
+                        return;
+                    }
                     if (respuesta && respuesta.content) {
                         const remoto = respuesta.content;
                         if (!remoto.cuentas) remoto.cuentas = CUENTAS_PREDETERMINADAS;
                         setDatos({ ...ESTADO_INICIAL, ...remoto });
-                    } else { guardarEnSupabase(ESTADO_INICIAL); }
-                } catch(err) {}
+                    } else { 
+                        guardarEnSupabase(ESTADO_INICIAL, userId); 
+                    }
+                } catch(err) {
+                    console.error("Fallo inesperado al cargar:", err);
+                }
             };
 
-            const guardarEnSupabase = async (nuevosDatos) => {
-                if (!clienteSupabase.current) return;
-                try { await clienteSupabase.current.from('app_data').upsert({ id: 'jose_finanzas', content: nuevosDatos, updated_at: new Date() }); } catch(err) {}
+            const guardarEnSupabase = async (nuevosDatos, userId = sesion?.user?.id) => {
+                if (!clienteSupabase.current || !userId) return;
+                try { 
+                    const { error } = await clienteSupabase.current
+                        .from('app_data')
+                        .upsert({ 
+                            id: userId,
+                            user_id: userId,
+                            content: nuevosDatos, 
+                            updated_at: new Date().toISOString() 
+                        }); 
+                    if (error) {
+                        console.error("Error al guardar:", error);
+                        mostrarNotificacion("Error al guardar en la nube", 'error');
+                    }
+                } catch(err) {
+                    console.error("Fallo de red al guardar:", err);
+                }
             };
 
             const actualizarYGuardar = (nuevosDatos) => { setDatos(nuevosDatos); guardarEnSupabase(nuevosDatos); };
