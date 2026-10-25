@@ -137,7 +137,7 @@
                     const { data: respuesta, error } = await clienteSupabase.current
                         .from('app_data')
                         .select('content')
-                        .eq('user_id', userId)
+                        .eq('id', userId)
                         .maybeSingle();
                         
                     if (error) {
